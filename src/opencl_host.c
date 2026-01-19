@@ -156,7 +156,7 @@ int gpu_precompute(gpu_context *ctx, const uint8_t *hash,
     p_clSetKernelArg(ctx->kernel, 3, sizeof(cl_ulong), &plaintext_space_total);
     p_clSetKernelArg(ctx->kernel, 4, sizeof(cl_mem), &output_buf);
     
-    printf("      Running on GPU (please wait, ~1-2 minutes)...\n");
+    printf("      Running on GPU\n");
     fflush(stdout);
     
     double start = (double)clock() / CLOCKS_PER_SEC;
@@ -333,4 +333,87 @@ int gpu_check_false_alarms(gpu_context *ctx,
     p_clReleaseMemObject(found_key_buf);
     
     return result;
+}
+
+int gpu_list(void) {
+    if (opencl_load() != 0) {
+        return -1;
+    }
+    
+    cl_platform_id platforms[8];
+    cl_uint num_platforms;
+    p_clGetPlatformIDs(8, platforms, &num_platforms);
+    
+    int gpu_index = 0;
+    for (cl_uint p = 0; p < num_platforms; p++) {
+        cl_device_id devices[16];
+        cl_uint num_devices;
+        if (p_clGetDeviceIDs(platforms[p], CL_DEVICE_TYPE_GPU, 16, devices, &num_devices) != CL_SUCCESS)
+            continue;
+        
+        for (cl_uint d = 0; d < num_devices; d++) {
+            char name[256];
+            p_clGetDeviceInfo(devices[d], CL_DEVICE_NAME, sizeof(name), name, NULL);
+            printf("  [%d] %s\n", gpu_index, name);
+            gpu_index++;
+        }
+    }
+    return gpu_index;
+}
+
+int gpu_init_index(gpu_context *ctx, int target_index) {
+    cl_int err;
+    cl_platform_id platforms[8];
+    cl_uint num_platforms;
+    
+    memset(ctx, 0, sizeof(gpu_context));
+    
+    if (opencl_load() != 0) {
+        return -1;
+    }
+    
+    p_clGetPlatformIDs(8, platforms, &num_platforms);
+    
+    int gpu_index = 0;
+    for (cl_uint p = 0; p < num_platforms; p++) {
+        cl_device_id devices[16];
+        cl_uint num_devices;
+        if (p_clGetDeviceIDs(platforms[p], CL_DEVICE_TYPE_GPU, 16, devices, &num_devices) != CL_SUCCESS)
+            continue;
+        
+        for (cl_uint d = 0; d < num_devices; d++) {
+            if (gpu_index == target_index) {
+                ctx->platform = platforms[p];
+                ctx->device = devices[d];
+                goto found;
+            }
+            gpu_index++;
+        }
+    }
+    
+    fprintf(stderr, "GPU index %d not found (have %d)\n", target_index, gpu_index);
+    return -1;
+
+found:
+    p_clGetDeviceInfo(ctx->device, CL_DEVICE_NAME, sizeof(ctx->device_name), ctx->device_name, NULL);
+    p_clGetDeviceInfo(ctx->device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(ctx->compute_units), &ctx->compute_units, NULL);
+    p_clGetDeviceInfo(ctx->device, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(ctx->max_work_group_size), &ctx->max_work_group_size, NULL);
+    
+    printf("      GPU: %s\n", ctx->device_name);
+    printf("      Compute units: %u\n", ctx->compute_units);
+    printf("      Max work group size: %zu\n", ctx->max_work_group_size);
+    
+    ctx->context = p_clCreateContext(NULL, 1, &ctx->device, NULL, NULL, &err);
+    if (err != CL_SUCCESS) {
+        fprintf(stderr, "Failed to create context: %d\n", err);
+        return -1;
+    }
+    
+    ctx->queue = p_clCreateCommandQueue(ctx->context, ctx->device, 0, &err);
+    if (err != CL_SUCCESS) {
+        fprintf(stderr, "Failed to create command queue: %d\n", err);
+        return -1;
+    }
+    
+    return 0;
 }

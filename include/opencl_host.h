@@ -31,5 +31,6 @@ int gpu_check_false_alarms(gpu_context *ctx, const uint8_t *target_hash,
                            uint64_t *start_indices, uint32_t *positions,
                            uint32_t num_candidates, uint32_t reduction_offset,
                            uint64_t plaintext_space_total, uint8_t *found_key);
-
+int gpu_list(void);
+int gpu_init_index(gpu_context *ctx, int device_index);
 #endif

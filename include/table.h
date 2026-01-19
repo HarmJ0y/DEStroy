@@ -3,9 +3,17 @@
 
 #include <stdint.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 typedef struct {
-    uint64_t *data;        // raw interleaved data
+    uint64_t *data;
     uint64_t num_chains;
+    uint64_t file_size;
+#ifdef _WIN32
+    HANDLE mapping;
+#endif
 } rt_table;
 
 int table_load(rt_table *table, const char *filename);

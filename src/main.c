@@ -354,6 +354,13 @@ int main(int argc, char **argv) {
     format_number(total_candidates, num_buf, sizeof(num_buf));
     printf("\r         Collected %s candidates - %s                    \n\n", num_buf, time_buf);
 
+    // In main.c after collect_candidates finishes, add:
+    printf("DEBUG First 5 candidates:\n");
+    for (uint32_t i = 0; i < 5 && i < total_candidates; i++) {
+        printf("  [%u] start=%016llX pos=%u\n", i, 
+            (unsigned long long)start_indices[i], positions[i]);
+    }
+
     int found = 0;
     char found_key[15] = {0};
 
