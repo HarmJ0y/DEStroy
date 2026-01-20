@@ -22,15 +22,22 @@ jobs:
       - name: Build Linux binaries (static)
         run: make static
 
+      - name: Rename binaries
+        run: |
+          mv gpu_lookup gpu_lookup-linux-x64
+          mv precompute precompute-linux-x64
+          mv candidate_lookup candidate_lookup-linux-x64
+          mv candidate_check candidate_check-linux-x64
+
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
           name: destroy-linux-x64
           path: |
-            gpu_lookup
-            precompute
-            candidate_lookup
-            candidate_check
+            gpu_lookup-linux-x64
+            precompute-linux-x64
+            candidate_lookup-linux-x64
+            candidate_check-linux-x64
 
   build-windows:
     runs-on: ubuntu-latest
@@ -47,15 +54,22 @@ jobs:
       - name: Build Windows binaries (static)
         run: make static-windows
 
+      - name: Rename binaries
+        run: |
+          mv gpu_lookup.exe gpu_lookup-windows-x64.exe
+          mv precompute.exe precompute-windows-x64.exe
+          mv candidate_lookup.exe candidate_lookup-windows-x64.exe
+          mv candidate_check.exe candidate_check-windows-x64.exe
+
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: destroy-windows-x64
           path: |
-            gpu_lookup.exe
-            precompute.exe
-            candidate_lookup.exe
-            candidate_check.exe
+            gpu_lookup-windows-x64.exe
+            precompute-windows-x64.exe
+            candidate_lookup-windows-x64.exe
+            candidate_check-windows-x64.exe
 
   release:
     needs: [build-linux, build-windows]
@@ -69,24 +83,28 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: destroy-linux-x64
-          path: linux
+          path: binaries
 
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
           name: destroy-windows-x64
-          path: windows
+          path: binaries
 
-      - name: Create archives
-        run: |
-          cd linux && chmod +x * && tar -czvf ../destroy-linux-x64.tar.gz * && cd ..
-          cd windows && zip -r ../destroy-windows-x64.zip * && cd ..
+      - name: Make Linux binaries executable
+        run: chmod +x binaries/*-linux-x64
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            destroy-linux-x64.tar.gz
-            destroy-windows-x64.zip
+            binaries/gpu_lookup-linux-x64
+            binaries/precompute-linux-x64
+            binaries/candidate_lookup-linux-x64
+            binaries/candidate_check-linux-x64
+            binaries/gpu_lookup-windows-x64.exe
+            binaries/precompute-windows-x64.exe
+            binaries/candidate_lookup-windows-x64.exe
+            binaries/candidate_check-windows-x64.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
