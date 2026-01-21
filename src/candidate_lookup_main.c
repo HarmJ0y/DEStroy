@@ -25,6 +25,15 @@ static double get_time_sec(void) {
 
 #define MAX_TABLES 8192
 
+static void get_output_path(char *path, size_t size, const char *work_dir, const char *ct_hex) {
+    const char *index = getenv("DESTROY_TMP_INDEX");
+    if (index) {
+        snprintf(path, size, "%s/%s.candidates.tmp.%s", work_dir, ct_hex, index);
+    } else {
+        snprintf(path, size, "%s/%s.candidates", work_dir, ct_hex);
+    }
+}
+
 static void write_error(const char *work_dir, const char *ct_hex, const char *msg) {
     char path[512];
     snprintf(path, sizeof(path), "%s/%s.error", work_dir, ct_hex);
@@ -76,6 +85,23 @@ static int collect_tables(const char *path, char **table_list, int *count, int m
     return 0;
 }
 
+static int append_candidates(const char *work_dir, const char *ct_hex, 
+                             uint64_t *start_indices, uint32_t *positions, uint32_t count) {
+    char path[512];
+    get_output_path(path, sizeof(path), work_dir, ct_hex);
+    
+    FILE *f = fopen(path, "ab");
+    if (!f) return -1;
+    
+    for (uint32_t i = 0; i < count; i++) {
+        fwrite(&start_indices[i], sizeof(uint64_t), 1, f);
+        fwrite(&positions[i], sizeof(uint32_t), 1, f);
+    }
+    
+    fclose(f);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     setbuf(stdout, NULL);
     setbuf(stderr, NULL);
@@ -88,6 +114,7 @@ int main(int argc, char **argv) {
     const char *endpoints_file = argv[1];
     const char *work_dir = argv[2];
     const char *ct_hex = extract_ct_hex(endpoints_file);
+    const char *tmp_index = getenv("DESTROY_TMP_INDEX");
 
     uint32_t num_indices = CHAIN_LEN - 1;
     uint64_t *end_indices = malloc(num_indices * sizeof(uint64_t));
@@ -104,7 +131,11 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    printf("STATUS Loaded %u endpoints for %s\n", num_indices, ct_hex);
+    if (tmp_index) {
+        printf("STATUS [%s] Loaded %u endpoints for %s\n", tmp_index, num_indices, ct_hex);
+    } else {
+        printf("STATUS Loaded %u endpoints for %s\n", num_indices, ct_hex);
+    }
 
     char *table_list[MAX_TABLES];
     int num_tables = 0;
@@ -120,7 +151,11 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    printf("STATUS Found %d tables\n", num_tables);
+    if (tmp_index) {
+        printf("STATUS [%s] Found %d tables\n", tmp_index, num_tables);
+    } else {
+        printf("STATUS Found %d tables\n", num_tables);
+    }
 
     uint64_t *start_indices = malloc(100000 * sizeof(uint64_t));
     uint32_t *positions = malloc(100000 * sizeof(uint32_t));
@@ -137,7 +172,11 @@ int main(int argc, char **argv) {
     double total_time = 0.0;
 
     for (int t = 0; t < num_tables; t++) {
-        printf("STATUS Searching table %d/%d: %s\n", t + 1, num_tables, table_list[t]);
+        if (tmp_index) {
+            printf("STATUS [%s] Searching table %d/%d: %s\n", tmp_index, t + 1, num_tables, table_list[t]);
+        } else {
+            printf("STATUS Searching table %d/%d: %s\n", t + 1, num_tables, table_list[t]);
+        }
         
         double load_start = get_time_sec();
         rt_table table = {0};
@@ -165,13 +204,23 @@ int main(int argc, char **argv) {
 
         table_free(&table);
 
-        printf("STATUS Table %d: load=%.3fs search=%.3fs total=%.3fs (%u lookups, %.0f lookups/sec)\n",
-               t + 1, load_time, search_time, table_time, num_indices,
-               search_time > 0 ? num_indices / search_time : 0);
+        if (tmp_index) {
+            printf("STATUS [%s] Table %d: load=%.3fs search=%.3fs total=%.3fs (%u lookups, %.0f lookups/sec)\n",
+                   tmp_index, t + 1, load_time, search_time, table_time, num_indices,
+                   search_time > 0 ? num_indices / search_time : 0);
+        } else {
+            printf("STATUS Table %d: load=%.3fs search=%.3fs total=%.3fs (%u lookups, %.0f lookups/sec)\n",
+                   t + 1, load_time, search_time, table_time, num_indices,
+                   search_time > 0 ? num_indices / search_time : 0);
+        }
 
         if (count > 0) {
-            printf("STATUS Found %u candidates in %s\n", count, table_list[t]);
-            if (append_candidates_to(work_dir, ct_hex, start_indices, positions, count) != 0) {
+            if (tmp_index) {
+                printf("STATUS [%s] Found %u candidates in %s\n", tmp_index, count, table_list[t]);
+            } else {
+                printf("STATUS Found %u candidates in %s\n", count, table_list[t]);
+            }
+            if (append_candidates(work_dir, ct_hex, start_indices, positions, count) != 0) {
                 fprintf(stderr, "ERROR Failed to save candidates\n");
                 write_error(work_dir, ct_hex, "Failed to save candidates");
                 free(table_list[t]);
@@ -182,12 +231,18 @@ int main(int argc, char **argv) {
 
         free(table_list[t]);
     }
+    
+    // Touch output file even if no candidates
     char cand_path[512];
-    snprintf(cand_path, sizeof(cand_path), "%s/%s.candidates", work_dir, ct_hex);
+    get_output_path(cand_path, sizeof(cand_path), work_dir, ct_hex);
     FILE *f = fopen(cand_path, "ab");
     if (f) fclose(f);
 
-    printf("STATUS Total time: %.3fs across %d tables\n", total_time, num_tables);
+    if (tmp_index) {
+        printf("STATUS [%s] Total time: %.3fs across %d tables\n", tmp_index, total_time, num_tables);
+    } else {
+        printf("STATUS Total time: %.3fs across %d tables\n", total_time, num_tables);
+    }
     printf("DONE %u\n", total_count);
 
     free(end_indices);
