@@ -5,6 +5,24 @@
 #include "utils.h"
 #include "table.h"
 
+#ifdef _WIN32
+#include <windows.h>
+static double get_time_sec(void) {
+    static LARGE_INTEGER freq = {0};
+    LARGE_INTEGER count;
+    if (freq.QuadPart == 0) QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&count);
+    return (double)count.QuadPart / (double)freq.QuadPart;
+}
+#else
+#include <time.h>
+static double get_time_sec(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec / 1e9;
+}
+#endif
+
 #define MAX_TABLES 8192
 
 static void write_error(const char *work_dir, const char *ct_hex, const char *msg) {
@@ -116,17 +134,21 @@ int main(int argc, char **argv) {
     }
 
     uint32_t total_count = 0;
+    double total_time = 0.0;
 
     for (int t = 0; t < num_tables; t++) {
         printf("STATUS Searching table %d/%d: %s\n", t + 1, num_tables, table_list[t]);
         
+        double load_start = get_time_sec();
         rt_table table = {0};
         if (table_load(&table, table_list[t]) != 0) {
             fprintf(stderr, "WARNING Table load failed: %s\n", table_list[t]);
             free(table_list[t]);
             continue;
         }
+        double load_time = get_time_sec() - load_start;
 
+        double search_start = get_time_sec();
         uint32_t count = 0;
         for (uint32_t pos = 0; pos < num_indices; pos++) {
             int found = 0;
@@ -137,8 +159,15 @@ int main(int argc, char **argv) {
                 count++;
             }
         }
+        double search_time = get_time_sec() - search_start;
+        double table_time = load_time + search_time;
+        total_time += table_time;
 
         table_free(&table);
+
+        printf("STATUS Table %d: load=%.3fs search=%.3fs total=%.3fs (%u lookups, %.0f lookups/sec)\n",
+               t + 1, load_time, search_time, table_time, num_indices,
+               search_time > 0 ? num_indices / search_time : 0);
 
         if (count > 0) {
             printf("STATUS Found %u candidates in %s\n", count, table_list[t]);
@@ -158,6 +187,7 @@ int main(int argc, char **argv) {
     FILE *f = fopen(cand_path, "ab");
     if (f) fclose(f);
 
+    printf("STATUS Total time: %.3fs across %d tables\n", total_time, num_tables);
     printf("DONE %u\n", total_count);
 
     free(end_indices);
