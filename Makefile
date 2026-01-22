@@ -40,7 +40,7 @@ CFLAGS = -Wall -Wextra -std=gnu99 -O2 -Iinclude -Idep
 LDFLAGS = -ldl
 RM = rm -f
 MINGW = x86_64-w64-mingw32-gcc
-MINGW_FLAGS = -Wall -Wextra -std=gnu99 -O2 -Iinclude -Idep -Wno-cast-function-type
+MINGW_FLAGS = -Wall -Wextra -std=gnu99 -O2 -Iinclude -Idep -Wno-cast-function-type -static
 
 all: gpu_lookup precompute candidate_lookup candidate_check
 
@@ -56,10 +56,6 @@ candidate_lookup: $(CANDIDATE_LOOKUP_SRCS)
 candidate_check: $(CANDIDATE_CHECK_SRCS)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
-static: CFLAGS += -static
-static: LDFLAGS += -static
-static: all
-
 windows: gpu_lookup.exe precompute.exe candidate_lookup.exe candidate_check.exe
 
 gpu_lookup.exe: $(LOOKUP_SRCS)
@@ -74,12 +70,9 @@ candidate_lookup.exe: $(CANDIDATE_LOOKUP_SRCS)
 candidate_check.exe: $(CANDIDATE_CHECK_SRCS)
 	$(MINGW) $(MINGW_FLAGS) $^ -o $@
 
-static-windows: MINGW_FLAGS += -static
-static-windows: windows
-
 clean:
 	$(RM) gpu_lookup gpu_lookup.exe precompute precompute.exe candidate_lookup candidate_lookup.exe candidate_check candidate_check.exe
 
 endif
 
-.PHONY: all clean windows static static-windows
+.PHONY: all clean windows
