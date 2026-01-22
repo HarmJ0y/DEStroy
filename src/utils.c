@@ -2,15 +2,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include "platform.h"
 #include "utils.h"
 
 #ifdef _WIN32
-#include <windows.h>
-#include <direct.h>
 #define mkdir_p(path) _mkdir(path)
 #else
 #include <sys/file.h>
-#include <unistd.h>
 #define mkdir_p(path) mkdir(path, 0755)
 #endif
 
@@ -47,12 +45,7 @@ uint64_t get_plaintext_space(void) {
     return space;
 }
 
-int save_endpoints_to(const char *dir, const char *ct_hex, uint64_t *end_indices, uint32_t count) {
-    mkdir_p(dir);
-    
-    char path[512];
-    snprintf(path, sizeof(path), "%s/%s.endpoints", dir, ct_hex);
-    
+int save_endpoints(const char *path, uint64_t *end_indices, uint32_t count) {
     FILE *f = fopen(path, "wb");
     if (!f) return -1;
     
@@ -60,6 +53,15 @@ int save_endpoints_to(const char *dir, const char *ct_hex, uint64_t *end_indices
     fclose(f);
     
     return (written == count) ? 0 : -1;
+}
+
+int save_endpoints_to(const char *dir, const char *ct_hex, uint64_t *end_indices, uint32_t count) {
+    mkdir_p(dir);
+    
+    char path[512];
+    snprintf(path, sizeof(path), "%s" PATH_SEP_STR "%s.endpoints", dir, ct_hex);
+    
+    return save_endpoints(path, end_indices, count);
 }
 
 int load_endpoints(const char *filepath, uint64_t *end_indices, uint32_t *count) {
@@ -105,7 +107,7 @@ int append_candidates_to(const char *dir, const char *ct_hex,
     mkdir_p(dir);
     
     char path[512];
-    snprintf(path, sizeof(path), "%s/%s.candidates", dir, ct_hex);
+    snprintf(path, sizeof(path), "%s" PATH_SEP_STR "%s.candidates", dir, ct_hex);
     
     FILE *f = fopen(path, "ab");
     if (!f) return -1;
@@ -131,7 +133,7 @@ int load_candidates(const char *filepath, uint64_t **start_indices, uint32_t **p
     long file_size = ftell(f);
     fseek(f, 0, SEEK_SET);
     
-    *count = file_size / 12;  // 8 bytes start_index + 4 bytes position
+    *count = file_size / 12;  /* 8 bytes start_index + 4 bytes position */
     
     if (*count == 0) {
         fclose(f);

@@ -1,12 +1,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "platform.h"
 #include "utils.h"
 #include "opencl_host.h"
 
-static void write_error(const char *work_dir, const char *ct_hex, const char *msg) {
+static void fail(const char *output_file, const char *msg) {
+    fprintf(stderr, "ERROR %s\n", msg);
     char path[512];
-    snprintf(path, sizeof(path), "%s/%s.error", work_dir, ct_hex);
+    snprintf(path, sizeof(path), "%s.error", output_file);
     FILE *f = fopen(path, "w");
     if (f) {
         fprintf(f, "%s\n", msg);
@@ -14,41 +16,37 @@ static void write_error(const char *work_dir, const char *ct_hex, const char *ms
     }
 }
 
-static const char *extract_ct_hex(const char *filepath) {
-    const char *filename = strrchr(filepath, '/');
-    if (!filename) filename = strrchr(filepath, '\\');
-    filename = filename ? filename + 1 : filepath;
-    
-    static char ct_hex[64];
-    strncpy(ct_hex, filename, sizeof(ct_hex) - 1);
-    ct_hex[sizeof(ct_hex) - 1] = '\0';
-    
-    char *dot = strrchr(ct_hex, '.');
-    if (dot) *dot = '\0';
-    
-    return ct_hex;
-}
-
 int main(int argc, char **argv) {
     setbuf(stdout, NULL);
     setbuf(stderr, NULL);
 
     if (argc < 3) {
-        fprintf(stderr, "Usage: %s <candidates_file> <work_dir> [gpu_index]\n", argv[0]);
+        fprintf(stderr, "Usage: %s <ciphertext_hex> <candidates_file> [-o output_file] [-g gpu_index]\n", argv[0]);
         fprintf(stderr, "\nAvailable GPUs:\n");
         gpu_list();
         return 1;
     }
 
-    const char *candidates_file = argv[1];
-    const char *work_dir = argv[2];
-    int gpu_index = argc > 3 ? atoi(argv[3]) : 0;
-    const char *ct_hex = extract_ct_hex(candidates_file);
+    const char *ct_hex = argv[1];
+    const char *candidates_file = argv[2];
+    
+    /* Default output: {ct_hex}.result */
+    char default_output[256];
+    snprintf(default_output, sizeof(default_output), "%s.result", ct_hex);
+    const char *output_file = default_output;
+    int gpu_index = 0;
+    
+    for (int i = 3; i < argc; i++) {
+        if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
+            output_file = argv[++i];
+        } else if (strcmp(argv[i], "-g") == 0 && i + 1 < argc) {
+            gpu_index = atoi(argv[++i]);
+        }
+    }
 
     uint8_t ciphertext[8];
     if (hex_to_bytes(ct_hex, ciphertext, 8) != 8) {
-        fprintf(stderr, "ERROR Invalid ciphertext from filename\n");
-        write_error(work_dir, ct_hex, "Invalid ciphertext from filename");
+        fail(output_file, "Invalid ciphertext (need 16 hex chars)");
         return 1;
     }
 
@@ -57,34 +55,28 @@ int main(int argc, char **argv) {
     uint32_t total = 0;
 
     if (load_candidates(candidates_file, &start_indices, &positions, &total) != 0) {
-        fprintf(stderr, "ERROR Failed to load candidates: %s\n", candidates_file);
-        write_error(work_dir, ct_hex, "Failed to load candidates");
+        fail(output_file, "Failed to load candidates");
         return 1;
     }
 
-    printf("STATUS Loaded %u candidates for %s\n", total, ct_hex);
-
-    printf("STATUS Initializing GPU %d...\n", gpu_index);
     gpu_context gpu = {0};
     if (gpu_init_index(&gpu, gpu_index) != 0) {
-        fprintf(stderr, "ERROR GPU init failed\n");
-        write_error(work_dir, ct_hex, "GPU init failed");
+        fail(output_file, "GPU init failed");
         free(start_indices);
         free(positions);
         return 1;
     }
+    printf("STATUS GPU %d: %s (%u CUs)\n", gpu_index, gpu.device_name, gpu.compute_units);
 
-    printf("STATUS Loading kernel...\n");
-    if (gpu_load_false_alarm_kernel(&gpu, "kernels/false_alarm.cl") != 0) {
-        fprintf(stderr, "ERROR Kernel load failed\n");
-        write_error(work_dir, ct_hex, "Kernel load failed");
+    if (gpu_load_false_alarm_kernel(&gpu, "kernels" PATH_SEP_STR "false_alarm.cl") != 0) {
+        fail(output_file, "Kernel load failed");
         gpu_cleanup(&gpu);
         free(start_indices);
         free(positions);
         return 1;
     }
 
-    printf("STATUS Checking %u candidates...\n", total);
+    printf("STATUS Checking %u candidates for %s...\n", total, ct_hex);
     uint64_t plaintext_space = get_plaintext_space();
     uint8_t key_bytes[7] = {0};
 
@@ -96,17 +88,13 @@ int main(int argc, char **argv) {
     free(positions);
 
     if (result < 0) {
-        fprintf(stderr, "ERROR False alarm check failed\n");
-        write_error(work_dir, ct_hex, "False alarm check failed");
+        fail(output_file, "False alarm check failed");
         return 1;
     }
 
-    char path[512];
-    snprintf(path, sizeof(path), "%s/%s.result", work_dir, ct_hex);
-    FILE *f = fopen(path, "w");
+    FILE *f = fopen(output_file, "w");
     if (!f) {
-        fprintf(stderr, "ERROR Failed to write result file\n");
-        write_error(work_dir, ct_hex, "Failed to write result file");
+        fail(output_file, "Failed to write result file");
         return 1;
     }
 
@@ -116,11 +104,11 @@ int main(int argc, char **argv) {
         fprintf(f, "%s\n", key_hex);
         fclose(f);
         printf("FOUND %s\n", key_hex);
-        return 0;
     } else {
         fprintf(f, "NOTFOUND\n");
         fclose(f);
         printf("NOTFOUND\n");
-        return 0;
     }
+    
+    return 0;
 }

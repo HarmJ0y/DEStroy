@@ -2,22 +2,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <dirent.h>
 #include <sys/stat.h>
-
-#ifdef _WIN32
-#include <direct.h>
-#include <windows.h>
-#define mkdir(path, mode) _mkdir(path)
-#else
-#include <sys/time.h>
-#endif
-
+#include "platform.h"
 #include "utils.h"
 #include "table.h"
 #include "rainbow.h"
 #include "netntlmv1.h"
 #include "opencl_host.h"
+
+#ifdef _WIN32
+#define mkdir(path, mode) _mkdir(path)
+#else
+#include <sys/time.h>
+#endif
 
 #define CHARSET_LEN 256
 #define PLAINTEXT_LEN_MAX 7
@@ -90,44 +87,33 @@ int is_rainbow_table(const char *filename) {
 }
 
 int find_tables(const char *dir_path, char **table_paths, int max_tables, int *count) {
-    DIR *dir = opendir(dir_path);
+    dir_iter_t *dir = dir_open(dir_path);
     if (!dir) return -1;
 
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL && *count < max_tables) {
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
-            continue;
-
-        size_t path_len = strlen(dir_path) + strlen(entry->d_name) + 2;
+    dir_entry_t entry;
+    while (dir_next(dir, &entry) && *count < max_tables) {
+        size_t path_len = strlen(dir_path) + strlen(entry.name) + 2;
         char *full_path = malloc(path_len);
         if (!full_path) continue;
 
-#ifdef _WIN32
-        snprintf(full_path, path_len, "%s\\%s", dir_path, entry->d_name);
-#else
-        snprintf(full_path, path_len, "%s/%s", dir_path, entry->d_name);
-#endif
+        snprintf(full_path, path_len, "%s" PATH_SEP_STR "%s", dir_path, entry.name);
 
-        if (is_directory(full_path)) {
+        if (entry.is_dir) {
             find_tables(full_path, table_paths, max_tables, count);
             free(full_path);
-        } else if (is_rainbow_table(entry->d_name)) {
+        } else if (is_rainbow_table(entry.name)) {
             table_paths[*count] = full_path;
             (*count)++;
         } else {
             free(full_path);
         }
     }
-    closedir(dir);
+    dir_close(dir);
     return 0;
 }
 
 void get_cache_path(const char *ct_hex, char *cache_path, size_t size) {
-#ifdef _WIN32
-    snprintf(cache_path, size, "%s\\%s.bin", CACHE_DIR, ct_hex);
-#else
-    snprintf(cache_path, size, "%s/%s.bin", CACHE_DIR, ct_hex);
-#endif
+    snprintf(cache_path, size, "%s" PATH_SEP_STR "%s.bin", CACHE_DIR, ct_hex);
 }
 
 void ensure_cache_dir(void) {
@@ -266,8 +252,8 @@ int main(int argc, char **argv) {
     printf("[%s] Loading kernels...\n", ts);
     step_start = get_time_sec();
 
-    if (gpu_load_kernel(&gpu, "kernels/precompute.cl", "precompute") != 0 ||
-        gpu_load_false_alarm_kernel(&gpu, "kernels/false_alarm.cl") != 0) {
+    if (gpu_load_kernel(&gpu, "kernels" PATH_SEP_STR "precompute.cl", "precompute") != 0 ||
+        gpu_load_false_alarm_kernel(&gpu, "kernels" PATH_SEP_STR "false_alarm.cl") != 0) {
         fprintf(stderr, "Error: Failed to load kernels\n");
         gpu_cleanup(&gpu);
         for (int i = 0; i < num_tables; i++) free(table_paths[i]);
@@ -354,7 +340,6 @@ int main(int argc, char **argv) {
     format_number(total_candidates, num_buf, sizeof(num_buf));
     printf("\r         Collected %s candidates - %s                    \n\n", num_buf, time_buf);
 
-    // In main.c after collect_candidates finishes, add:
     printf("DEBUG First 5 candidates:\n");
     for (uint32_t i = 0; i < 5 && i < total_candidates; i++) {
         printf("  [%u] start=%016llX pos=%u\n", i, 

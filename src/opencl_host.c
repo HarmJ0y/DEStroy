@@ -40,10 +40,6 @@ int gpu_init(gpu_context *ctx) {
     p_clGetDeviceInfo(ctx->device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(ctx->compute_units), &ctx->compute_units, NULL);
     p_clGetDeviceInfo(ctx->device, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(ctx->max_work_group_size), &ctx->max_work_group_size, NULL);
     
-    printf("      GPU: %s\n", ctx->device_name);
-    printf("      Compute units: %u\n", ctx->compute_units);
-    printf("      Max work group size: %zu\n", ctx->max_work_group_size);
-    
     ctx->context = p_clCreateContext(NULL, 1, &ctx->device, NULL, NULL, &err);
     if (err != CL_SUCCESS) {
         fprintf(stderr, "Failed to create context: %d\n", err);
@@ -156,11 +152,6 @@ int gpu_precompute(gpu_context *ctx, const uint8_t *hash,
     p_clSetKernelArg(ctx->kernel, 3, sizeof(cl_ulong), &plaintext_space_total);
     p_clSetKernelArg(ctx->kernel, 4, sizeof(cl_mem), &output_buf);
     
-    printf("      Running on GPU\n");
-    fflush(stdout);
-    
-    double start = (double)clock() / CLOCKS_PER_SEC;
-    
     err = p_clEnqueueNDRangeKernel(ctx->queue, ctx->kernel, 1, NULL,
                                     &global_work_size, NULL, 0, NULL, NULL);
     if (err != CL_SUCCESS) {
@@ -171,9 +162,6 @@ int gpu_precompute(gpu_context *ctx, const uint8_t *hash,
     }
     
     p_clFinish(ctx->queue);
-    
-    double elapsed = (double)clock() / CLOCKS_PER_SEC - start;
-    printf("      GPU computation finished in %.1f seconds\n", elapsed);
     
     err = p_clEnqueueReadBuffer(ctx->queue, output_buf, CL_TRUE, 0,
                                  num_indices * sizeof(cl_ulong), output, 0, NULL, NULL);
@@ -258,7 +246,6 @@ int gpu_check_false_alarms(gpu_context *ctx,
         return 0;
     }
     
-    // Create buffers
     cl_mem hash_buf = p_clCreateBuffer(ctx->context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
                                         8, (void *)target_hash, &err);
     if (err != CL_SUCCESS) return -1;
@@ -290,7 +277,6 @@ int gpu_check_false_alarms(gpu_context *ctx,
         return -1; 
     }
     
-    // Set kernel arguments
     p_clSetKernelArg(ctx->fa_kernel, 0, sizeof(cl_mem), &hash_buf);
     p_clSetKernelArg(ctx->fa_kernel, 1, sizeof(cl_mem), &start_buf);
     p_clSetKernelArg(ctx->fa_kernel, 2, sizeof(cl_mem), &pos_buf);
@@ -300,7 +286,6 @@ int gpu_check_false_alarms(gpu_context *ctx,
     p_clSetKernelArg(ctx->fa_kernel, 6, sizeof(cl_mem), &found_idx_buf);
     p_clSetKernelArg(ctx->fa_kernel, 7, sizeof(cl_mem), &found_key_buf);
     
-    // Execute
     size_t global_work_size = num_candidates;
     err = p_clEnqueueNDRangeKernel(ctx->queue, ctx->fa_kernel, 1, NULL,
                                     &global_work_size, NULL, 0, NULL, NULL);
@@ -316,7 +301,6 @@ int gpu_check_false_alarms(gpu_context *ctx,
     
     p_clFinish(ctx->queue);
     
-    // Read results
     int found_idx;
     p_clEnqueueReadBuffer(ctx->queue, found_idx_buf, CL_TRUE, 0, sizeof(int), &found_idx, 0, NULL, NULL);
     
@@ -353,11 +337,19 @@ int gpu_list(void) {
         
         for (cl_uint d = 0; d < num_devices; d++) {
             char name[256];
+            cl_uint cus;
             p_clGetDeviceInfo(devices[d], CL_DEVICE_NAME, sizeof(name), name, NULL);
-            printf("  [%d] %s\n", gpu_index, name);
+            p_clGetDeviceInfo(devices[d], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cus), &cus, NULL);
+            printf("  [%d] %s (%u CUs)\n", gpu_index, name, cus);
             gpu_index++;
         }
     }
+    
+    if (gpu_index == 0) {
+        printf("  (none found)\n");
+    }
+    
+    opencl_unload();
     return gpu_index;
 }
 
@@ -398,10 +390,6 @@ found:
     p_clGetDeviceInfo(ctx->device, CL_DEVICE_NAME, sizeof(ctx->device_name), ctx->device_name, NULL);
     p_clGetDeviceInfo(ctx->device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(ctx->compute_units), &ctx->compute_units, NULL);
     p_clGetDeviceInfo(ctx->device, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(ctx->max_work_group_size), &ctx->max_work_group_size, NULL);
-    
-    printf("      GPU: %s\n", ctx->device_name);
-    printf("      Compute units: %u\n", ctx->compute_units);
-    printf("      Max work group size: %zu\n", ctx->max_work_group_size);
     
     ctx->context = p_clCreateContext(NULL, 1, &ctx->device, NULL, NULL, &err);
     if (err != CL_SUCCESS) {

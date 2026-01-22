@@ -24,5 +24,6 @@ int load_endpoints(const char *filepath, uint64_t *end_indices, uint32_t *count)
 int append_candidates_to(const char *dir, const char *ct_hex,
                          uint64_t *start_indices, uint32_t *positions, uint32_t count);
 int load_candidates(const char *filepath, uint64_t **start_indices, uint32_t **positions, uint32_t *count);
+int save_endpoints(const char *path, uint64_t *end_indices, uint32_t count);
 
 #endif

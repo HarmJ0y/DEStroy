@@ -1,12 +1,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "platform.h"
 #include "utils.h"
 #include "opencl_host.h"
 
-static void write_error(const char *work_dir, const char *ct_hex, const char *msg) {
+static void fail(const char *output_file, const char *msg) {
+    fprintf(stderr, "ERROR %s\n", msg);
     char path[512];
-    snprintf(path, sizeof(path), "%s/%s.error", work_dir, ct_hex);
+    snprintf(path, sizeof(path), "%s.error", output_file);
     FILE *f = fopen(path, "w");
     if (f) {
         fprintf(f, "%s\n", msg);
@@ -18,36 +20,40 @@ int main(int argc, char **argv) {
     setbuf(stdout, NULL);
     setbuf(stderr, NULL);
     
-    if (argc < 2) {
-        fprintf(stderr, "Usage: %s <ciphertext_hex> [work_dir] [gpu_index]\n", argv[0]);
+    if (argc < 3) {
+        fprintf(stderr, "Usage: %s <ciphertext_hex> <output_file> [-g gpu_index]\n", argv[0]);
         fprintf(stderr, "\nAvailable GPUs:\n");
         gpu_list();
         return 1;
     }
 
     const char *ct_hex = argv[1];
-    const char *work_dir = argc > 2 ? argv[2] : "working";
-    int gpu_index = argc > 3 ? atoi(argv[3]) : 0;
+    const char *output_file = argv[2];
+    int gpu_index = 0;
+    
+    for (int i = 3; i < argc; i++) {
+        if (strcmp(argv[i], "-g") == 0 && i + 1 < argc) {
+            gpu_index = atoi(argv[++i]);
+        }
+    }
 
     uint8_t ciphertext[8];
     if (hex_to_bytes(ct_hex, ciphertext, 8) != 8) {
-        fprintf(stderr, "ERROR Invalid ciphertext\n");
-        write_error(work_dir, ct_hex, "Invalid ciphertext");
+        fail(output_file, "Invalid ciphertext: must be exactly 16 hex characters (8 bytes)");
         return 1;
     }
 
-    printf("STATUS Initializing GPU %d...\n", gpu_index);
     gpu_context gpu = {0};
     if (gpu_init_index(&gpu, gpu_index) != 0) {
-        fprintf(stderr, "ERROR GPU init failed\n");
-        write_error(work_dir, ct_hex, "GPU init failed");
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Failed to initialize GPU %d", gpu_index);
+        fail(output_file, msg);
         return 1;
     }
+    printf("STATUS GPU %d: %s (%u CUs)\n", gpu_index, gpu.device_name, gpu.compute_units);
 
-    printf("STATUS Loading kernel...\n");
-    if (gpu_load_kernel(&gpu, "kernels/precompute.cl", "precompute") != 0) {
-        fprintf(stderr, "ERROR Kernel load failed\n");
-        write_error(work_dir, ct_hex, "Kernel load failed");
+    if (gpu_load_kernel(&gpu, "kernels" PATH_SEP_STR "precompute.cl", "precompute") != 0) {
+        fail(output_file, "Failed to compile precompute kernel");
         gpu_cleanup(&gpu);
         return 1;
     }
@@ -55,35 +61,34 @@ int main(int argc, char **argv) {
     uint32_t num_indices = CHAIN_LEN - 1;
     uint64_t *end_indices = malloc(num_indices * sizeof(uint64_t));
     if (!end_indices) {
-        fprintf(stderr, "ERROR malloc failed\n");
-        write_error(work_dir, ct_hex, "malloc failed");
+        fail(output_file, "Out of memory");
         gpu_cleanup(&gpu);
         return 1;
     }
 
-    printf("STATUS Computing %u endpoints...\n", num_indices);
     uint64_t plaintext_space = get_plaintext_space();
+    printf("STATUS Computing %u endpoints for %s...\n", num_indices, ct_hex);
+    
     int result = gpu_precompute(&gpu, ciphertext, CHAIN_LEN, REDUCTION_OFFSET,
                                  plaintext_space, end_indices);
 
     if (result < 0) {
-        fprintf(stderr, "ERROR Precompute failed\n");
-        write_error(work_dir, ct_hex, "Precompute failed");
+        char msg[256];
+        snprintf(msg, sizeof(msg), "GPU precomputation failed (error %d)", result);
+        fail(output_file, msg);
         free(end_indices);
         gpu_cleanup(&gpu);
         return 1;
     }
 
-    printf("STATUS Saving endpoints...\n");
-    if (save_endpoints_to(work_dir, ct_hex, end_indices, num_indices) != 0) {
-        fprintf(stderr, "ERROR Save failed\n");
-        write_error(work_dir, ct_hex, "Save failed");
+    if (save_endpoints(output_file, end_indices, num_indices) != 0) {
+        fail(output_file, "Failed to save endpoints");
         free(end_indices);
         gpu_cleanup(&gpu);
         return 1;
     }
 
-    printf("DONE %u\n", num_indices);
+    printf("DONE %u endpoints saved to %s\n", num_indices, output_file);
 
     free(end_indices);
     gpu_cleanup(&gpu);

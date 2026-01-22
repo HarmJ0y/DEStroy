@@ -60,7 +60,7 @@ void index_to_plaintext(uint64_t index, uint32_t charset_len,
     index_x = index - plaintext_space_up_to_index[*key_len_out - 1];
     
     for (int i = *key_len_out - 1; i >= 0; i--) {
-        key_out[i] = index_x % charset_len;
+        key_out[i] = (uint8_t)(index_x % charset_len);
         index_x = index_x / charset_len;
     }
 }
