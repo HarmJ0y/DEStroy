@@ -3,14 +3,6 @@
 #include <stdlib.h>
 #include "table.h"
 
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
-#endif
 int table_load(rt_table *table, const char *filename) {
     FILE *f = fopen(filename, "rb");
     if (!f) return -1;
@@ -47,9 +39,7 @@ void table_free(rt_table *table) {
     table->file_size = 0;
 }
 
-
-// data layout: [start0][end0][start1][end1][start2][end2]...
-// data[i*2] = start, data[i*2+1] = end
+// Binary search for individual lookups (kept for compatibility)
 uint64_t table_search(rt_table *table, uint64_t end_index, int *found) {
     *found = 0;
     if (table->num_chains == 0) return 0;
@@ -63,7 +53,7 @@ uint64_t table_search(rt_table *table, uint64_t end_index, int *found) {
 
         if (mid_end == end_index) {
             *found = 1;
-            return table->data[mid * 2];  // return start
+            return table->data[mid * 2];
         }
 
         if (mid_end < end_index) {

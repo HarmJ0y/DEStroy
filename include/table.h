@@ -3,17 +3,12 @@
 
 #include <stdint.h>
 
-#ifdef _WIN32
-#include <windows.h>
-#endif
+#define CHAIN_LEN 881689
 
 typedef struct {
-    uint64_t *data;
+    uint64_t *data;        // [start0][end0][start1][end1]...
     uint64_t num_chains;
-    uint64_t file_size;
-#ifdef _WIN32
-    HANDLE mapping;
-#endif
+    size_t file_size;
 } rt_table;
 
 int table_load(rt_table *table, const char *filename);
