@@ -3,6 +3,7 @@ LOOKUP_SRCS = src/main.c $(COMMON_SRCS)
 PRECOMPUTE_SRCS = src/precompute_main.c $(COMMON_SRCS)
 CANDIDATE_LOOKUP_SRCS = src/candidate_lookup_main.c $(COMMON_SRCS)
 CANDIDATE_CHECK_SRCS = src/candidate_check_main.c $(COMMON_SRCS)
+DESTROY_SRCS = src/destroy_main.c $(COMMON_SRCS)
 
 ifeq ($(OS),Windows_NT)
     ifndef VSCMD_ARG_TGT_ARCH
@@ -42,7 +43,7 @@ RM = rm -f
 MINGW = x86_64-w64-mingw32-gcc
 MINGW_FLAGS = -Wall -Wextra -std=gnu99 -O2 -Iinclude -Idep -Wno-cast-function-type -static
 
-all: gpu_lookup precompute candidate_lookup candidate_check
+all: gpu_lookup precompute candidate_lookup candidate_check destroy_optimized
 
 gpu_lookup: $(LOOKUP_SRCS)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
@@ -51,10 +52,13 @@ precompute: $(PRECOMPUTE_SRCS)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 candidate_lookup: $(CANDIDATE_LOOKUP_SRCS)
-	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS) -lpthread
 
 candidate_check: $(CANDIDATE_CHECK_SRCS)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
+destroy_optimized: $(DESTROY_SRCS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS) -lpthread -lm
 
 windows: gpu_lookup.exe precompute.exe candidate_lookup.exe candidate_check.exe
 
@@ -71,7 +75,7 @@ candidate_check.exe: $(CANDIDATE_CHECK_SRCS)
 	$(MINGW) $(MINGW_FLAGS) $^ -o $@
 
 clean:
-	$(RM) gpu_lookup gpu_lookup.exe precompute precompute.exe candidate_lookup candidate_lookup.exe candidate_check candidate_check.exe
+	$(RM) gpu_lookup gpu_lookup.exe precompute precompute.exe candidate_lookup candidate_lookup.exe candidate_check candidate_check.exe destroy_optimized destroy_optimized.exe
 
 endif
 

@@ -5,7 +5,13 @@
 #include "utils.h"
 #include "table.h"
 
+#ifndef _WIN32
+#include <pthread.h>
+#include <unistd.h>
+#endif
+
 #define MAX_TABLES 8192
+#define MAX_CANDIDATES_PER_TABLE 100000
 
 // Structure to track original positions through sorting
 typedef struct {
@@ -73,33 +79,19 @@ static int collect_tables(const char *path, char **table_list, int *count, int m
     return 0;
 }
 
-static int append_candidates(const char *output_file, 
-                             uint64_t *start_indices, uint32_t *positions, uint32_t count) {
-    FILE *f = fopen(output_file, "ab");
-    if (!f) return -1;
-    
-    for (uint32_t i = 0; i < count; i++) {
-        fwrite(&start_indices[i], sizeof(uint64_t), 1, f);
-        fwrite(&positions[i], sizeof(uint32_t), 1, f);
-    }
-    
-    fclose(f);
-    return 0;
-}
-
 static const char *extract_basename(const char *filepath) {
     const char *filename = strrchr(filepath, '/');
     if (!filename) filename = strrchr(filepath, '\\');
     filename = filename ? filename + 1 : filepath;
-    
-    static char basename[256];
-    strncpy(basename, filename, sizeof(basename) - 1);
-    basename[sizeof(basename) - 1] = '\0';
-    
-    char *dot = strrchr(basename, '.');
+
+    static char basename_buf[256];
+    strncpy(basename_buf, filename, sizeof(basename_buf) - 1);
+    basename_buf[sizeof(basename_buf) - 1] = '\0';
+
+    char *dot = strrchr(basename_buf, '.');
     if (dot) *dot = '\0';
-    
-    return basename;
+
+    return basename_buf;
 }
 
 /* Sequential merge search for a single table */
@@ -108,61 +100,118 @@ static uint32_t search_single_table(rt_table *table,
                                      uint64_t *start_indices, uint32_t *positions) {
     uint32_t count = 0;
     uint64_t table_idx = 0;
-    
+
     for (uint32_t endpoint_idx = 0; endpoint_idx < num_indices; endpoint_idx++) {
         uint64_t target = endpoints[endpoint_idx].endpoint;
-        
-        /* Advance table cursor forward until we reach or pass target */
+
         while (table_idx < table->num_chains) {
             uint64_t current_end = table->data[table_idx * 2 + 1];
-            
+
             if (current_end == target) {
-                /* Match found! Save original position, not sorted position */
                 start_indices[count] = table->data[table_idx * 2];
                 positions[count] = endpoints[endpoint_idx].original_pos;
                 count++;
                 table_idx++;
                 break;
             } else if (current_end < target) {
-                /* Table is behind, keep advancing */
                 table_idx++;
             } else {
-                /* Table is ahead, stop and wait for next endpoint */
                 break;
             }
         }
-        
-        /* Early exit if we've exhausted the table */
+
         if (table_idx >= table->num_chains) {
             break;
         }
     }
-    
+
     return count;
 }
+
+#ifndef _WIN32
+/* Thread-safe candidate collection */
+typedef struct {
+    uint64_t start_indices[MAX_CANDIDATES_PER_TABLE];
+    uint32_t positions[MAX_CANDIDATES_PER_TABLE];
+    uint32_t count;
+} candidate_batch_t;
+
+typedef struct {
+    char **table_paths;
+    int table_start;
+    int table_end;
+    endpoint_with_pos_t *endpoints;
+    uint32_t num_indices;
+    /* Per-thread output */
+    candidate_batch_t *batches;  /* array of batches, one per table */
+    uint32_t total_found;
+    int thread_id;
+} thread_arg_t;
+
+static void *worker_thread(void *arg) {
+    thread_arg_t *ta = (thread_arg_t *)arg;
+    ta->total_found = 0;
+
+    for (int t = ta->table_start; t < ta->table_end; t++) {
+        int batch_idx = t - ta->table_start;
+        candidate_batch_t *batch = &ta->batches[batch_idx];
+        batch->count = 0;
+
+        double load_start = get_time_sec();
+        rt_table table = {0};
+
+        if (table_load(&table, ta->table_paths[t]) != 0) {
+            fprintf(stderr, "WARNING [T%d] Table load failed: %s\n",
+                    ta->thread_id, ta->table_paths[t]);
+            continue;
+        }
+        double load_time = get_time_sec() - load_start;
+
+        double search_start = get_time_sec();
+        batch->count = search_single_table(&table, ta->endpoints, ta->num_indices,
+                                            batch->start_indices, batch->positions);
+        double search_time = get_time_sec() - search_start;
+
+        table_free(&table);
+
+        ta->total_found += batch->count;
+        printf("STATUS [T%d] %s: %.1fs (load: %.1fs, search: %.1fs), %u found\n",
+               ta->thread_id, ta->table_paths[t],
+               load_time + search_time, load_time, search_time, batch->count);
+    }
+
+    return NULL;
+}
+#endif
 
 int main(int argc, char **argv) {
     setbuf(stdout, NULL);
     setbuf(stderr, NULL);
 
     if (argc < 3) {
-        fprintf(stderr, "Usage: %s <endpoints_file> <table_dir_or_file> [...] [-o output_file]\n", argv[0]);
+        fprintf(stderr, "Usage: %s <endpoints_file> <table_dir_or_file> [...] [-o output_file] [-t threads]\n", argv[0]);
         return 1;
     }
 
     const char *endpoints_file = argv[1];
-    
-    /* Parse arguments: find -o flag or use default */
+
+    /* Parse arguments: find -o and -t flags */
     char default_output[256];
     snprintf(default_output, sizeof(default_output), "%s.candidates", extract_basename(endpoints_file));
     const char *output_file = default_output;
-    
+    int num_threads = 4;
+
     int table_arg_end = argc;
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
             output_file = argv[i + 1];
-            table_arg_end = i;
-            break;
+            if (table_arg_end > i) table_arg_end = i;
+            i++;
+        } else if (strcmp(argv[i], "-t") == 0 && i + 1 < argc) {
+            num_threads = atoi(argv[i + 1]);
+            if (num_threads < 1) num_threads = 1;
+            if (table_arg_end > i) table_arg_end = i;
+            i++;
         }
     }
 
@@ -187,25 +236,22 @@ int main(int argc, char **argv) {
         free(end_indices);
         return 1;
     }
-    
+
     for (uint32_t i = 0; i < num_indices; i++) {
         endpoints_sorted[i].endpoint = end_indices[i];
         endpoints_sorted[i].original_pos = i;
     }
-    
-    /* Sort endpoints while preserving original positions */
+
     printf("STATUS Sorting %u endpoints...\n", num_indices);
     double sort_start = get_time_sec();
     qsort(endpoints_sorted, num_indices, sizeof(endpoint_with_pos_t), compare_endpoints);
     double sort_time = get_time_sec() - sort_start;
     printf("STATUS Endpoints sorted in %.1fs\n", sort_time);
-    
-    /* Debug: Show endpoint range */
-    printf("STATUS Endpoint range: %016llx to %016llx\n", 
-           (unsigned long long)endpoints_sorted[0].endpoint, 
+
+    printf("STATUS Endpoint range: %016llx to %016llx\n",
+           (unsigned long long)endpoints_sorted[0].endpoint,
            (unsigned long long)endpoints_sorted[num_indices - 1].endpoint);
 
-    /* Can free original endpoint array now */
     free(end_indices);
 
     /* Collect table paths */
@@ -222,74 +268,147 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    printf("STATUS %u endpoints, %d tables\n", num_indices, num_tables);
+    printf("STATUS %u endpoints, %d tables, %d threads\n", num_indices, num_tables, num_threads);
+    double total_start = get_time_sec();
 
-    /* Allocate result buffers (reused for each table) */
-    uint64_t *start_indices = malloc(100000 * sizeof(uint64_t));
-    uint32_t *positions = malloc(100000 * sizeof(uint32_t));
-    if (!start_indices || !positions) {
-        fail(output_file, "malloc failed");
-        free(endpoints_sorted);
+#ifndef _WIN32
+    if (num_threads > 1 && num_tables > 1) {
+        /* Multi-threaded mode */
+        if (num_threads > num_tables) num_threads = num_tables;
+
+        pthread_t *threads = malloc(num_threads * sizeof(pthread_t));
+        thread_arg_t *args = malloc(num_threads * sizeof(thread_arg_t));
+
+        /* Divide tables among threads */
+        int tables_per_thread = num_tables / num_threads;
+        int remainder = num_tables % num_threads;
+        int offset = 0;
+
+        for (int i = 0; i < num_threads; i++) {
+            args[i].table_paths = table_list;
+            args[i].table_start = offset;
+            int count = tables_per_thread + (i < remainder ? 1 : 0);
+            args[i].table_end = offset + count;
+            offset += count;
+            args[i].endpoints = endpoints_sorted;
+            args[i].num_indices = num_indices;
+            args[i].thread_id = i;
+            args[i].batches = calloc(count, sizeof(candidate_batch_t));
+            args[i].total_found = 0;
+
+            pthread_create(&threads[i], NULL, worker_thread, &args[i]);
+        }
+
+        /* Wait for all threads and write results */
+        uint32_t total_count = 0;
+
+        for (int i = 0; i < num_threads; i++) {
+            pthread_join(threads[i], NULL);
+
+            /* Write all batches from this thread */
+            int num_batches = args[i].table_end - args[i].table_start;
+            for (int b = 0; b < num_batches; b++) {
+                candidate_batch_t *batch = &args[i].batches[b];
+                if (batch->count > 0) {
+                    FILE *f = fopen(output_file, "ab");
+                    if (f) {
+                        for (uint32_t j = 0; j < batch->count; j++) {
+                            fwrite(&batch->start_indices[j], sizeof(uint64_t), 1, f);
+                            fwrite(&batch->positions[j], sizeof(uint32_t), 1, f);
+                        }
+                        fclose(f);
+                    }
+                    total_count += batch->count;
+                }
+            }
+
+            free(args[i].batches);
+        }
+
+        free(threads);
+        free(args);
+
+        /* Touch output file even if no candidates */
+        FILE *f = fopen(output_file, "ab");
+        if (f) fclose(f);
+
+        double total_time = get_time_sec() - total_start;
+        printf("DONE %u candidates in %.1fs (%d threads)\n", total_count, total_time, num_threads);
+
+    } else
+#endif
+    {
+        /* Single-threaded fallback */
+        uint64_t *start_indices = malloc(MAX_CANDIDATES_PER_TABLE * sizeof(uint64_t));
+        uint32_t *positions = malloc(MAX_CANDIDATES_PER_TABLE * sizeof(uint32_t));
+        if (!start_indices || !positions) {
+            fail(output_file, "malloc failed");
+            free(endpoints_sorted);
+            free(start_indices);
+            free(positions);
+            return 1;
+        }
+
+        uint32_t total_count = 0;
+        double total_time = 0.0;
+
+        for (int t = 0; t < num_tables; t++) {
+            double load_start = get_time_sec();
+            rt_table table = {0};
+
+            if (table_load(&table, table_list[t]) != 0) {
+                fprintf(stderr, "WARNING Table load failed: %s\n", table_list[t]);
+                free(table_list[t]);
+                continue;
+            }
+            double load_time = get_time_sec() - load_start;
+
+            if (t == 0) {
+                printf("STATUS First table range: %016llx to %016llx\n",
+                       (unsigned long long)table.data[1],
+                       (unsigned long long)table.data[(table.num_chains - 1) * 2 + 1]);
+            }
+
+            double search_start = get_time_sec();
+            uint32_t count = search_single_table(&table, endpoints_sorted, num_indices,
+                                                  start_indices, positions);
+            double search_time = get_time_sec() - search_start;
+            double table_time = load_time + search_time;
+            total_time += table_time;
+
+            table_free(&table);
+
+            printf("STATUS [%d/%d] %s: %.1fs (load: %.1fs, search: %.1fs), %u found\n",
+                   t + 1, num_tables, table_list[t], table_time, load_time, search_time, count);
+
+            if (count > 0) {
+                FILE *f = fopen(output_file, "ab");
+                if (f) {
+                    for (uint32_t j = 0; j < count; j++) {
+                        fwrite(&start_indices[j], sizeof(uint64_t), 1, f);
+                        fwrite(&positions[j], sizeof(uint32_t), 1, f);
+                    }
+                    fclose(f);
+                }
+                total_count += count;
+            }
+
+            free(table_list[t]);
+        }
+
+        FILE *f = fopen(output_file, "ab");
+        if (f) fclose(f);
+
+        printf("DONE %u candidates in %.1fs\n", total_count, total_time);
+
         free(start_indices);
         free(positions);
-        return 1;
     }
 
-    uint32_t total_count = 0;
-    double total_time = 0.0;
-
-    /* Process one table at a time */
     for (int t = 0; t < num_tables; t++) {
-        double load_start = get_time_sec();
-        rt_table table = {0};
-        
-        if (table_load(&table, table_list[t]) != 0) {
-            fprintf(stderr, "WARNING Table load failed: %s\n", table_list[t]);
-            free(table_list[t]);
-            continue;
-        }
-        double load_time = get_time_sec() - load_start;
-
-        /* Debug first table */
-        if (t == 0) {
-            printf("STATUS First table range: %016llx to %016llx\n",
-                   (unsigned long long)table.data[1],
-                   (unsigned long long)table.data[(table.num_chains - 1) * 2 + 1]);
-        }
-
-        /* Sequential merge search through this table */
-        double search_start = get_time_sec();
-        uint32_t count = search_single_table(&table, endpoints_sorted, num_indices,
-                                              start_indices, positions);
-        double search_time = get_time_sec() - search_start;
-        double table_time = load_time + search_time;
-        total_time += table_time;
-
-        table_free(&table);
-
-        printf("STATUS [%d/%d] %s: %.1fs (load: %.1fs, search: %.1fs), %u found\n",
-               t + 1, num_tables, table_list[t], table_time, load_time, search_time, count);
-
-        if (count > 0) {
-            if (append_candidates(output_file, start_indices, positions, count) != 0) {
-                fail(output_file, "Failed to save candidates");
-                free(table_list[t]);
-                break;
-            }
-            total_count += count;
-        }
-
-        free(table_list[t]);
+        /* table_list entries already freed in single-thread mode */
     }
-    
-    /* Touch output file even if no candidates */
-    FILE *f = fopen(output_file, "ab");
-    if (f) fclose(f);
-
-    printf("DONE %u candidates in %.1fs\n", total_count, total_time);
 
     free(endpoints_sorted);
-    free(start_indices);
-    free(positions);
     return 0;
 }

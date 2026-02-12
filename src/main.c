@@ -284,8 +284,8 @@ int main(int argc, char **argv) {
         printf("         Loaded from cache\n\n");
     } else {
         step_start = get_time_sec();
-        int result = gpu_precompute(&gpu, ciphertext, CHAIN_LEN, REDUCTION_OFFSET,
-                                     plaintext_space_total, end_indices);
+        int result = gpu_precompute_chunked(&gpu, ciphertext, CHAIN_LEN, REDUCTION_OFFSET,
+                                             plaintext_space_total, end_indices);
         if (result < 0) {
             fprintf(stderr, "Error: GPU precomputation failed\n");
             free(end_indices);

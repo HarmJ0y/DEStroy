@@ -9,6 +9,7 @@ typedef struct {
     uint64_t *data;        // [start0][end0][start1][end1]...
     uint64_t num_chains;
     size_t file_size;
+    int is_mmap;           // 1 if data is mmap'd, 0 if malloc'd
 } rt_table;
 
 int table_load(rt_table *table, const char *filename);

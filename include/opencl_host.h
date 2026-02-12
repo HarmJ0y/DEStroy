@@ -18,6 +18,13 @@ typedef struct {
     char device_name[128];
     uint32_t compute_units;
     size_t max_work_group_size;
+    /* Pre-allocated verification buffers */
+    cl_mem fa_hash_buf;
+    cl_mem fa_start_buf;
+    cl_mem fa_pos_buf;
+    cl_mem fa_found_idx_buf;
+    cl_mem fa_found_key_buf;
+    uint32_t fa_buf_capacity;  /* Current allocation size in candidates */
 } gpu_context;
 
 int gpu_init(gpu_context *ctx);
@@ -27,10 +34,22 @@ int gpu_load_false_alarm_kernel(gpu_context *ctx, const char *source_file);
 int gpu_precompute(gpu_context *ctx, const uint8_t *ciphertext, uint32_t chain_len,
                    uint32_t reduction_offset, uint64_t plaintext_space_total,
                    uint64_t *end_indices);
+int gpu_precompute_chunked(gpu_context *ctx, const uint8_t *ciphertext, uint32_t chain_len,
+                           uint32_t reduction_offset, uint64_t plaintext_space_total,
+                           uint64_t *end_indices);
+int gpu_precompute_chunked_range(gpu_context *ctx, const uint8_t *ciphertext, uint32_t chain_len,
+                                  uint32_t reduction_offset, uint64_t plaintext_space_total,
+                                  uint64_t *end_indices, uint32_t pos_offset, uint32_t count);
 int gpu_check_false_alarms(gpu_context *ctx, const uint8_t *target_hash,
                            uint64_t *start_indices, uint32_t *positions,
                            uint32_t num_candidates, uint32_t reduction_offset,
                            uint64_t plaintext_space_total, uint8_t *found_key);
+int gpu_alloc_verify_buffers(gpu_context *ctx, uint32_t capacity);
+void gpu_free_verify_buffers(gpu_context *ctx);
+int gpu_check_false_alarms_fast(gpu_context *ctx, const uint8_t *target_hash,
+                                uint64_t *start_indices, uint32_t *positions,
+                                uint32_t num_candidates, uint32_t reduction_offset,
+                                uint64_t plaintext_space_total, uint8_t *found_key);
 int gpu_list(void);
 int gpu_init_index(gpu_context *ctx, int device_index);
 #endif

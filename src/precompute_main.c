@@ -69,8 +69,8 @@ int main(int argc, char **argv) {
     uint64_t plaintext_space = get_plaintext_space();
     printf("STATUS Computing %u endpoints for %s...\n", num_indices, ct_hex);
     
-    int result = gpu_precompute(&gpu, ciphertext, CHAIN_LEN, REDUCTION_OFFSET,
-                                 plaintext_space, end_indices);
+    int result = gpu_precompute_chunked(&gpu, ciphertext, CHAIN_LEN, REDUCTION_OFFSET,
+                                         plaintext_space, end_indices);
 
     if (result < 0) {
         char msg[256];

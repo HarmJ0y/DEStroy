@@ -32,14 +32,23 @@ clCreateBuffer_fn p_clCreateBuffer;
 clSetKernelArg_fn p_clSetKernelArg;
 clEnqueueNDRangeKernel_fn p_clEnqueueNDRangeKernel;
 clEnqueueReadBuffer_fn p_clEnqueueReadBuffer;
+clEnqueueWriteBuffer_fn p_clEnqueueWriteBuffer;
 clFinish_fn p_clFinish;
+clFlush_fn p_clFlush;
 clReleaseMemObject_fn p_clReleaseMemObject;
 clReleaseKernel_fn p_clReleaseKernel;
 clReleaseProgram_fn p_clReleaseProgram;
 clReleaseCommandQueue_fn p_clReleaseCommandQueue;
 clReleaseContext_fn p_clReleaseContext;
 
+static int opencl_refcount = 0;
+
 int opencl_load(void) {
+    if (opencl_refcount > 0) {
+        opencl_refcount++;
+        return 0;
+    }
+
     opencl_lib = LOADLIB(OPENCL_LIB);
     
 #ifndef _WIN32
@@ -70,7 +79,9 @@ int opencl_load(void) {
     p_clSetKernelArg = (clSetKernelArg_fn)GETFUNC(opencl_lib, "clSetKernelArg");
     p_clEnqueueNDRangeKernel = (clEnqueueNDRangeKernel_fn)GETFUNC(opencl_lib, "clEnqueueNDRangeKernel");
     p_clEnqueueReadBuffer = (clEnqueueReadBuffer_fn)GETFUNC(opencl_lib, "clEnqueueReadBuffer");
+    p_clEnqueueWriteBuffer = (clEnqueueWriteBuffer_fn)GETFUNC(opencl_lib, "clEnqueueWriteBuffer");
     p_clFinish = (clFinish_fn)GETFUNC(opencl_lib, "clFinish");
+    p_clFlush = (clFlush_fn)GETFUNC(opencl_lib, "clFlush");
     p_clReleaseMemObject = (clReleaseMemObject_fn)GETFUNC(opencl_lib, "clReleaseMemObject");
     p_clReleaseKernel = (clReleaseKernel_fn)GETFUNC(opencl_lib, "clReleaseKernel");
     p_clReleaseProgram = (clReleaseProgram_fn)GETFUNC(opencl_lib, "clReleaseProgram");
@@ -79,15 +90,18 @@ int opencl_load(void) {
 
     if (!p_clGetPlatformIDs || !p_clCreateContext || !p_clCreateKernel) {
         fprintf(stderr, "Failed to load OpenCL functions\n");
-        opencl_unload();
+        FREELIB(opencl_lib);
+        opencl_lib = NULL;
         return -1;
     }
 
+    opencl_refcount = 1;
     return 0;
 }
 
 void opencl_unload(void) {
-    if (opencl_lib) {
+    if (opencl_refcount > 0) opencl_refcount--;
+    if (opencl_refcount == 0 && opencl_lib) {
         FREELIB(opencl_lib);
         opencl_lib = NULL;
     }

@@ -186,66 +186,133 @@ inline void des_setkey(uint *SK, uchar *key) {
     X &= 0x0FFFFFFF;
     Y &= 0x0FFFFFFF;
 
-    for (int i = 0; i < 16; i++) {
-        if (i < 2 || i == 8 || i == 15) {
-            X = ((X << 1) | (X >> 27)) & 0x0FFFFFFF;
-            Y = ((Y << 1) | (Y >> 27)) & 0x0FFFFFFF;
-        } else {
-            X = ((X << 2) | (X >> 26)) & 0x0FFFFFFF;
-            Y = ((Y << 2) | (Y >> 26)) & 0x0FFFFFFF;
-        }
+#define DES_ROUND_KEY(i) \
+    SK[i * 2] = ((X << 4) & 0x24000000) | ((X << 28) & 0x10000000) \
+            | ((X << 14) & 0x08000000) | ((X << 18) & 0x02080000) \
+            | ((X << 6) & 0x01000000) | ((X << 9) & 0x00200000) \
+            | ((X >> 1) & 0x00100000) | ((X << 10) & 0x00040000) \
+            | ((X << 2) & 0x00020000) | ((X >> 10) & 0x00010000) \
+            | ((Y >> 13) & 0x00002000) | ((Y >> 4) & 0x00001000) \
+            | ((Y << 6) & 0x00000800) | ((Y >> 1) & 0x00000400) \
+            | ((Y >> 14) & 0x00000200) | ((Y) & 0x00000100) \
+            | ((Y >> 5) & 0x00000020) | ((Y >> 10) & 0x00000010) \
+            | ((Y >> 3) & 0x00000008) | ((Y >> 18) & 0x00000004) \
+            | ((Y >> 26) & 0x00000002) | ((Y >> 24) & 0x00000001); \
+    SK[i * 2 + 1] = ((X << 15) & 0x20000000) | ((X << 17) & 0x10000000) \
+            | ((X << 10) & 0x08000000) | ((X << 22) & 0x04000000) \
+            | ((X >> 2) & 0x02000000) | ((X << 1) & 0x01000000) \
+            | ((X << 16) & 0x00200000) | ((X << 11) & 0x00100000) \
+            | ((X << 3) & 0x00080000) | ((X >> 6) & 0x00040000) \
+            | ((X << 15) & 0x00020000) | ((X >> 4) & 0x00010000) \
+            | ((Y >> 2) & 0x00002000) | ((Y << 8) & 0x00001000) \
+            | ((Y >> 14) & 0x00000808) | ((Y >> 9) & 0x00000400) \
+            | ((Y) & 0x00000200) | ((Y << 7) & 0x00000100) \
+            | ((Y >> 7) & 0x00000020) | ((Y >> 3) & 0x00000011) \
+            | ((Y << 2) & 0x00000004) | ((Y >> 21) & 0x00000002);
 
-        SK[i * 2] = ((X << 4) & 0x24000000) | ((X << 28) & 0x10000000)
-                | ((X << 14) & 0x08000000) | ((X << 18) & 0x02080000)
-                | ((X << 6) & 0x01000000) | ((X << 9) & 0x00200000)
-                | ((X >> 1) & 0x00100000) | ((X << 10) & 0x00040000)
-                | ((X << 2) & 0x00020000) | ((X >> 10) & 0x00010000)
-                | ((Y >> 13) & 0x00002000) | ((Y >> 4) & 0x00001000)
-                | ((Y << 6) & 0x00000800) | ((Y >> 1) & 0x00000400)
-                | ((Y >> 14) & 0x00000200) | ((Y) & 0x00000100)
-                | ((Y >> 5) & 0x00000020) | ((Y >> 10) & 0x00000010)
-                | ((Y >> 3) & 0x00000008) | ((Y >> 18) & 0x00000004)
-                | ((Y >> 26) & 0x00000002) | ((Y >> 24) & 0x00000001);
+    X = ((X << 1) | (X >> 27)) & 0x0FFFFFFF;
+    Y = ((Y << 1) | (Y >> 27)) & 0x0FFFFFFF;
+    DES_ROUND_KEY(0)
 
-        SK[i * 2 + 1] = ((X << 15) & 0x20000000) | ((X << 17) & 0x10000000)
-                | ((X << 10) & 0x08000000) | ((X << 22) & 0x04000000)
-                | ((X >> 2) & 0x02000000) | ((X << 1) & 0x01000000)
-                | ((X << 16) & 0x00200000) | ((X << 11) & 0x00100000)
-                | ((X << 3) & 0x00080000) | ((X >> 6) & 0x00040000)
-                | ((X << 15) & 0x00020000) | ((X >> 4) & 0x00010000)
-                | ((Y >> 2) & 0x00002000) | ((Y << 8) & 0x00001000)
-                | ((Y >> 14) & 0x00000808) | ((Y >> 9) & 0x00000400)
-                | ((Y) & 0x00000200) | ((Y << 7) & 0x00000100)
-                | ((Y >> 7) & 0x00000020) | ((Y >> 3) & 0x00000011)
-                | ((Y << 2) & 0x00000004) | ((Y >> 21) & 0x00000002);
-    }
+    X = ((X << 1) | (X >> 27)) & 0x0FFFFFFF;
+    Y = ((Y << 1) | (Y >> 27)) & 0x0FFFFFFF;
+    DES_ROUND_KEY(1)
+
+    X = ((X << 2) | (X >> 26)) & 0x0FFFFFFF;
+    Y = ((Y << 2) | (Y >> 26)) & 0x0FFFFFFF;
+    DES_ROUND_KEY(2)
+
+    X = ((X << 2) | (X >> 26)) & 0x0FFFFFFF;
+    Y = ((Y << 2) | (Y >> 26)) & 0x0FFFFFFF;
+    DES_ROUND_KEY(3)
+
+    X = ((X << 2) | (X >> 26)) & 0x0FFFFFFF;
+    Y = ((Y << 2) | (Y >> 26)) & 0x0FFFFFFF;
+    DES_ROUND_KEY(4)
+
+    X = ((X << 2) | (X >> 26)) & 0x0FFFFFFF;
+    Y = ((Y << 2) | (Y >> 26)) & 0x0FFFFFFF;
+    DES_ROUND_KEY(5)
+
+    X = ((X << 2) | (X >> 26)) & 0x0FFFFFFF;
+    Y = ((Y << 2) | (Y >> 26)) & 0x0FFFFFFF;
+    DES_ROUND_KEY(6)
+
+    X = ((X << 2) | (X >> 26)) & 0x0FFFFFFF;
+    Y = ((Y << 2) | (Y >> 26)) & 0x0FFFFFFF;
+    DES_ROUND_KEY(7)
+
+    X = ((X << 1) | (X >> 27)) & 0x0FFFFFFF;
+    Y = ((Y << 1) | (Y >> 27)) & 0x0FFFFFFF;
+    DES_ROUND_KEY(8)
+
+    X = ((X << 2) | (X >> 26)) & 0x0FFFFFFF;
+    Y = ((Y << 2) | (Y >> 26)) & 0x0FFFFFFF;
+    DES_ROUND_KEY(9)
+
+    X = ((X << 2) | (X >> 26)) & 0x0FFFFFFF;
+    Y = ((Y << 2) | (Y >> 26)) & 0x0FFFFFFF;
+    DES_ROUND_KEY(10)
+
+    X = ((X << 2) | (X >> 26)) & 0x0FFFFFFF;
+    Y = ((Y << 2) | (Y >> 26)) & 0x0FFFFFFF;
+    DES_ROUND_KEY(11)
+
+    X = ((X << 2) | (X >> 26)) & 0x0FFFFFFF;
+    Y = ((Y << 2) | (Y >> 26)) & 0x0FFFFFFF;
+    DES_ROUND_KEY(12)
+
+    X = ((X << 2) | (X >> 26)) & 0x0FFFFFFF;
+    Y = ((Y << 2) | (Y >> 26)) & 0x0FFFFFFF;
+    DES_ROUND_KEY(13)
+
+    X = ((X << 2) | (X >> 26)) & 0x0FFFFFFF;
+    Y = ((Y << 2) | (Y >> 26)) & 0x0FFFFFFF;
+    DES_ROUND_KEY(14)
+
+    X = ((X << 1) | (X >> 27)) & 0x0FFFFFFF;
+    Y = ((Y << 1) | (Y >> 27)) & 0x0FFFFFFF;
+    DES_ROUND_KEY(15)
+
+#undef DES_ROUND_KEY
 }
 
 inline void des_encrypt(uint *SK, uchar *output) {
     uint X, Y, T;
-    
+
     X = 0xf0aaf0aa;
     Y = 0x00cd00cd;
 
-    for (int i = 0; i < 8; i++) {
-        T = SK[i * 4] ^ Y;
-        X ^= SB8[(T) & 0x3F] ^ SB6[(T >> 8) & 0x3F] ^
-             SB4[(T >> 16) & 0x3F] ^ SB2[(T >> 24) & 0x3F];
-        T = SK[i * 4 + 1] ^ ((Y << 28) | (Y >> 4));
-        X ^= SB7[(T) & 0x3F] ^ SB5[(T >> 8) & 0x3F] ^
-             SB3[(T >> 16) & 0x3F] ^ SB1[(T >> 24) & 0x3F];
+#define DES_HALF_ROUND(a, b, k) \
+    T = SK[k] ^ (b); \
+    (a) ^= SB8[(T) & 0x3F] ^ SB6[(T >> 8) & 0x3F] ^ \
+           SB4[(T >> 16) & 0x3F] ^ SB2[(T >> 24) & 0x3F]; \
+    T = SK[k + 1] ^ rotate((b), 28u); \
+    (a) ^= SB7[(T) & 0x3F] ^ SB5[(T >> 8) & 0x3F] ^ \
+           SB3[(T >> 16) & 0x3F] ^ SB1[(T >> 24) & 0x3F];
 
-        T = SK[i * 4 + 2] ^ X;
-        Y ^= SB8[(T) & 0x3F] ^ SB6[(T >> 8) & 0x3F] ^
-             SB4[(T >> 16) & 0x3F] ^ SB2[(T >> 24) & 0x3F];
-        T = SK[i * 4 + 3] ^ ((X << 28) | (X >> 4));
-        Y ^= SB7[(T) & 0x3F] ^ SB5[(T >> 8) & 0x3F] ^
-             SB3[(T >> 16) & 0x3F] ^ SB1[(T >> 24) & 0x3F];
-    }
+    DES_HALF_ROUND(X, Y, 0)
+    DES_HALF_ROUND(Y, X, 2)
+    DES_HALF_ROUND(X, Y, 4)
+    DES_HALF_ROUND(Y, X, 6)
+    DES_HALF_ROUND(X, Y, 8)
+    DES_HALF_ROUND(Y, X, 10)
+    DES_HALF_ROUND(X, Y, 12)
+    DES_HALF_ROUND(Y, X, 14)
+    DES_HALF_ROUND(X, Y, 16)
+    DES_HALF_ROUND(Y, X, 18)
+    DES_HALF_ROUND(X, Y, 20)
+    DES_HALF_ROUND(Y, X, 22)
+    DES_HALF_ROUND(X, Y, 24)
+    DES_HALF_ROUND(Y, X, 26)
+    DES_HALF_ROUND(X, Y, 28)
+    DES_HALF_ROUND(Y, X, 30)
 
-    Y = ((Y << 31) | (Y >> 1));
+#undef DES_HALF_ROUND
+
+    Y = rotate(Y, 31u);
     T = (Y ^ X) & 0xAAAAAAAA; Y ^= T; X ^= T;
-    X = ((X << 31) | (X >> 1));
+    X = rotate(X, 31u);
     T = ((X >> 8) ^ Y) & 0x00FF00FF; Y ^= T; X ^= (T << 8);
     T = ((X >> 2) ^ Y) & 0x33333333; Y ^= T; X ^= (T << 2);
     T = ((Y >> 16) ^ X) & 0x0000FFFF; X ^= T; Y ^= (T << 16);
@@ -258,7 +325,7 @@ inline void des_encrypt(uint *SK, uchar *output) {
 inline void netntlmv1_hash(uchar *key_56, uchar *output) {
     uchar key[8];
     uint SK[32];
-    
+
     key[0] = (((key_56[0] >> 1) & 0x7f) << 1);
     key[1] = (((key_56[0] & 0x01) << 6 | ((key_56[1] >> 2) & 0x3f)) << 1);
     key[2] = (((key_56[1] & 0x03) << 5 | ((key_56[2] >> 3) & 0x1f)) << 1);
@@ -272,71 +339,130 @@ inline void netntlmv1_hash(uchar *key_56, uchar *output) {
     des_encrypt(SK, output);
 }
 
-inline ulong hash_to_index(uchar *hash, uint reduction_offset, ulong plaintext_space_total, uint pos) {
+inline ulong hash_to_index(uchar *hash, uint reduction_offset, ulong plaintext_space_mask, uint pos) {
     ulong ret = (ulong)hash[7] << 56 | (ulong)hash[6] << 48 |
                 (ulong)hash[5] << 40 | (ulong)hash[4] << 32 |
                 (ulong)hash[3] << 24 | (ulong)hash[2] << 16 |
                 (ulong)hash[1] << 8  | (ulong)hash[0];
-    return (ret + reduction_offset + pos) % plaintext_space_total;
+    return (ret + reduction_offset + pos) & plaintext_space_mask;
 }
 
 inline void index_to_plaintext(ulong index, uchar *key_out) {
-    for (int i = 6; i >= 0; i--) {
-        key_out[i] = index % 256;
-        index /= 256;
-    }
+    key_out[6] = (uchar)index; index >>= 8;
+    key_out[5] = (uchar)index; index >>= 8;
+    key_out[4] = (uchar)index; index >>= 8;
+    key_out[3] = (uchar)index; index >>= 8;
+    key_out[2] = (uchar)index; index >>= 8;
+    key_out[1] = (uchar)index; index >>= 8;
+    key_out[0] = (uchar)index;
+}
+
+/* DES encrypt returning hash as two uint values for direct comparison */
+inline void des_encrypt_raw(uint *SK, uint *out_Y, uint *out_X) {
+    uint X, Y, T;
+
+    X = 0xf0aaf0aa;
+    Y = 0x00cd00cd;
+
+#define DES_HR2(a, b, ki) \
+    T = SK[ki] ^ (b); \
+    (a) ^= SB8[(T) & 0x3F] ^ SB6[(T >> 8) & 0x3F] ^ \
+           SB4[(T >> 16) & 0x3F] ^ SB2[(T >> 24) & 0x3F]; \
+    T = SK[ki + 1] ^ rotate((b), 28u); \
+    (a) ^= SB7[(T) & 0x3F] ^ SB5[(T >> 8) & 0x3F] ^ \
+           SB3[(T >> 16) & 0x3F] ^ SB1[(T >> 24) & 0x3F];
+
+    DES_HR2(X, Y, 0)  DES_HR2(Y, X, 2)  DES_HR2(X, Y, 4)  DES_HR2(Y, X, 6)
+    DES_HR2(X, Y, 8)  DES_HR2(Y, X, 10) DES_HR2(X, Y, 12) DES_HR2(Y, X, 14)
+    DES_HR2(X, Y, 16) DES_HR2(Y, X, 18) DES_HR2(X, Y, 20) DES_HR2(Y, X, 22)
+    DES_HR2(X, Y, 24) DES_HR2(Y, X, 26) DES_HR2(X, Y, 28) DES_HR2(Y, X, 30)
+
+#undef DES_HR2
+
+    Y = rotate(Y, 31u);
+    T = (Y ^ X) & 0xAAAAAAAA; Y ^= T; X ^= T;
+    X = rotate(X, 31u);
+    T = ((X >> 8) ^ Y) & 0x00FF00FF; Y ^= T; X ^= (T << 8);
+    T = ((X >> 2) ^ Y) & 0x33333333; Y ^= T; X ^= (T << 2);
+    T = ((Y >> 16) ^ X) & 0x0000FFFF; X ^= T; Y ^= (T << 16);
+    T = ((Y >> 4) ^ X) & 0x0F0F0F0F; X ^= T; Y ^= (T << 4);
+
+    *out_Y = Y;
+    *out_X = X;
 }
 
 __kernel void check_false_alarms(
-    __global uchar *g_target_hash,      // 8 bytes - the hash we're looking for
-    __global ulong *g_start_indices,    // start index for each candidate
-    __global uint *g_positions,         // chain position for each candidate  
+    __global uchar *g_target_hash,
+    __global ulong *g_start_indices,
+    __global uint *g_positions,
     uint num_candidates,
     uint reduction_offset,
-    ulong plaintext_space_total,
-    __global int *g_found_idx,          // output: index of found candidate (-1 if not found)
-    __global uchar *g_found_key         // output: 7-byte key if found
+    ulong plaintext_space_mask,
+    __global int *g_found_idx,
+    __global uchar *g_found_key
 ) {
     uint id = get_global_id(0);
-    
+
     if (id >= num_candidates) {
         return;
     }
-    
+
+    /* Load target hash as two uint values for fast comparison */
+    uint target_Y = ((uint)g_target_hash[0] << 24) | ((uint)g_target_hash[1] << 16) |
+                    ((uint)g_target_hash[2] << 8) | (uint)g_target_hash[3];
+    uint target_X = ((uint)g_target_hash[4] << 24) | ((uint)g_target_hash[5] << 16) |
+                    ((uint)g_target_hash[6] << 8) | (uint)g_target_hash[7];
+
     ulong index = g_start_indices[id];
     uint target_pos = g_positions[id];
-    
-    uchar hash[8];
-    uchar key[7];
-    
-    // Walk chain from start to target position
+
+    uchar key56[7];
+    uchar key[8];
+    uint SK[32];
+
     for (uint p = 0; p <= target_pos; p++) {
-        index_to_plaintext(index, key);
-        netntlmv1_hash(key, hash);
-        
+        /* index_to_plaintext */
+        key56[0] = (uchar)(index >> 48);
+        key56[1] = (uchar)(index >> 40);
+        key56[2] = (uchar)(index >> 32);
+        key56[3] = (uchar)(index >> 24);
+        key56[4] = (uchar)(index >> 16);
+        key56[5] = (uchar)(index >> 8);
+        key56[6] = (uchar)(index);
+
+        /* netntlmv1 key expansion */
+        key[0] = (((key56[0] >> 1) & 0x7f) << 1);
+        key[1] = (((key56[0] & 0x01) << 6 | ((key56[1] >> 2) & 0x3f)) << 1);
+        key[2] = (((key56[1] & 0x03) << 5 | ((key56[2] >> 3) & 0x1f)) << 1);
+        key[3] = (((key56[2] & 0x07) << 4 | ((key56[3] >> 4) & 0x0f)) << 1);
+        key[4] = (((key56[3] & 0x0f) << 3 | ((key56[4] >> 5) & 0x07)) << 1);
+        key[5] = (((key56[4] & 0x1f) << 2 | ((key56[5] >> 6) & 0x03)) << 1);
+        key[6] = (((key56[5] & 0x3f) << 1 | ((key56[6] >> 7) & 0x01)) << 1);
+        key[7] = ((key56[6] & 0x7f) << 1);
+
+        des_setkey(SK, key);
+
+        uint hash_Y, hash_X;
+        des_encrypt_raw(SK, &hash_Y, &hash_X);
+
         if (p == target_pos) {
-            // Check if hash matches target
-            int match = 1;
-            for (int i = 0; i < 8; i++) {
-                if (hash[i] != g_target_hash[i]) {
-                    match = 0;
-                    break;
-                }
-            }
-            
-            if (match) {
-                // Found it! Use atomic to avoid race conditions
+            /* 64-bit comparison: two uint comparisons instead of 8 byte comparisons */
+            if (hash_Y == target_Y && hash_X == target_X) {
                 int old = atomic_cmpxchg(g_found_idx, -1, (int)id);
                 if (old == -1) {
-                    // We won the race, write the key
                     for (int i = 0; i < 7; i++) {
-                        g_found_key[i] = key[i];
+                        g_found_key[i] = key56[i];
                     }
                 }
                 return;
             }
+        } else {
+            /* hash_to_index using raw uint values */
+            ulong ret = ((ulong)(hash_X & 0xFF) << 56) | ((ulong)((hash_X >> 8) & 0xFF) << 48) |
+                        ((ulong)((hash_X >> 16) & 0xFF) << 40) | ((ulong)(hash_X >> 24) << 32) |
+                        ((ulong)(hash_Y & 0xFF) << 24) | ((ulong)((hash_Y >> 8) & 0xFF) << 16) |
+                        ((ulong)((hash_Y >> 16) & 0xFF) << 8) | (ulong)(hash_Y >> 24);
+            index = (ret + reduction_offset + p) & plaintext_space_mask;
         }
-        
-        index = hash_to_index(hash, reduction_offset, plaintext_space_total, p);
     }
 }

@@ -16,10 +16,13 @@ See [LICENSE](LICENSE) for the full license text, or visit https://www.gnu.org/l
 
 ## Quick Start
 ```bash
-# Linux
 make
 
-# Single ciphertext lookup
+# End-to-end NetNTLMv1 crack (recommended)
+./destroy_optimized /path/to/tables/ \
+  "user::DOMAIN:LM_RESPONSE:NT_RESPONSE:1122334455667788"
+
+# Or crack raw ciphertexts individually using the step-by-step tools
 ./precompute 535549550D915078 working/535549550D915078.endpoints
 ./candidate_lookup working/535549550D915078.endpoints /path/to/tables -o working/535549550D915078.candidates
 ./candidate_check 535549550D915078 working/535549550D915078.candidates -o working/535549550D915078.result
@@ -86,7 +89,7 @@ NetNTLMv1 response:   535549550D915078B4F2F4334C1992E00B3693107DC5A855
 user::domain:535549550D915078B4F2F4334C1992E00B3693107DC5A855:1122334455667788
 ```
 
-To recover the NTLM hash, run this tool 3 times (once per ciphertext), then concatenate the results.
+To recover the NTLM hash, use `destroy_optimized` with the full NetNTLMv1 hash string (handles all 3 ciphertexts automatically), or run the individual tools 3 times and concatenate the results.
 
 ---
 
@@ -127,6 +130,37 @@ make windows
 ---
 
 ## CLI Tools
+
+### destroy_optimized (recommended)
+
+All-in-one multi-GPU streaming pipeline. Accepts a full NetNTLMv1 hash string, cracks CT1+CT2 via rainbow tables (simultaneously), brute-forces CT3, and outputs the NTLM hash.
+
+```bash
+# NetNTLMv1 end-to-end
+./destroy_optimized /path/to/tables/ "user::DOMAIN:LM_RESP:NT_RESP:1122334455667788"
+
+# Raw ciphertext(s)
+./destroy_optimized /path/to/tables/ 535549550D915078
+./destroy_optimized /path/to/tables/ 535549550D915078 B4F2F4334C1992E0
+```
+
+Options:
+| Flag | Default | Description |
+|---|---|---|
+| `--gpus N` | 4 | Number of GPUs to use |
+| `--io-threads N` | 32 | Parallel table-reading threads |
+| `--no-streaming` | | Batch mode instead of streaming pipeline |
+| `--json-log FILE` | | Write JSONL progress events to FILE |
+
+#### JSON log output (`--json-log`)
+
+When `--json-log <path>` is specified, machine-readable JSONL (one JSON object per line) is written to the given file while human output on stdout/stderr is unchanged. Designed for web frontends or automation.
+
+Events emitted: `start`, `gpu_init`, `gpu_init_done`, `precompute_start`, `precompute_done`, `scan_start`, `scan_progress` (~1% granularity), `key_found`, `scan_done`, `ct3_start`, `ct3_done`, `result`.
+
+Each line has an `event` field and an ISO 8601 `timestamp`. The final `result` event contains `success`, `ntlm_hash`, `keys`, and `total_sec`.
+
+---
 
 ### precompute
 
@@ -208,6 +242,7 @@ DEStroy/
 │   ├── opencl_dyn.h
 │   └── opencl_host.h
 └── src/
+    ├── destroy_main.c
     ├── main.c
     ├── precompute_main.c
     ├── candidate_lookup_main.c
