@@ -687,13 +687,99 @@ typedef struct {
     uint32_t count;
     int gpu_id;
     int result;
+    precompute_progress_fn cb;
+    void *cb_data;
 } precompute_thread_arg_t;
+
+/* ---- Precompute Progress Reporting ---- */
+
+typedef struct {
+    int hash_idx;
+    const char *ct_hex;
+    int last_reported_pct;
+} precompute_progress_ctx_t;
+
+static void precompute_progress_single(uint32_t rounds_done, uint32_t total_rounds, void *user_data) {
+    precompute_progress_ctx_t *ctx = (precompute_progress_ctx_t *)user_data;
+    double pct = 100.0 * rounds_done / total_rounds;
+    int ipct = (int)pct;
+
+    if (rounds_done >= total_rounds) {
+        fprintf(stderr, "\r  Precompute: 100.0%% (%u/%u rounds)                    \n", total_rounds, total_rounds);
+    } else {
+        fprintf(stderr, "\r  Precompute: %.1f%% (%u/%u rounds)    ", pct, rounds_done, total_rounds);
+    }
+
+    if (ipct > ctx->last_reported_pct || rounds_done >= total_rounds) {
+        ctx->last_reported_pct = ipct;
+        char ts[64];
+        json_timestamp(ts, sizeof(ts));
+        jlog("{\"event\":\"precompute_progress\",\"timestamp\":\"%s\","
+             "\"hash_idx\":%d,\"ct_hex\":\"%s\",\"rounds_done\":%u,"
+             "\"total_rounds\":%u,\"pct\":%.1f}",
+             ts, ctx->hash_idx, ctx->ct_hex, rounds_done, total_rounds, pct);
+    }
+}
+
+typedef struct {
+    int hash_idx;
+    const char *ct_hex;
+    int num_gpus;
+    uint32_t gpu_rounds[MAX_GPUS];
+    uint32_t gpu_total[MAX_GPUS];
+    int last_reported_pct;
+    pthread_mutex_t mutex;
+} precompute_multi_progress_t;
+
+typedef struct {
+    precompute_multi_progress_t *shared;
+    int gpu_id;
+} precompute_gpu_cb_ctx_t;
+
+static void precompute_progress_multi(uint32_t rounds_done, uint32_t total_rounds, void *user_data) {
+    precompute_gpu_cb_ctx_t *gctx = (precompute_gpu_cb_ctx_t *)user_data;
+    precompute_multi_progress_t *shared = gctx->shared;
+
+    pthread_mutex_lock(&shared->mutex);
+    shared->gpu_rounds[gctx->gpu_id] = rounds_done;
+    shared->gpu_total[gctx->gpu_id] = total_rounds;
+
+    uint64_t sum_done = 0, sum_total = 0;
+    for (int g = 0; g < shared->num_gpus; g++) {
+        sum_done += shared->gpu_rounds[g];
+        sum_total += shared->gpu_total[g];
+    }
+
+    double pct = sum_total > 0 ? 100.0 * sum_done / sum_total : 0.0;
+    int ipct = (int)pct;
+    int all_done = (sum_done >= sum_total && sum_total > 0);
+
+    if (all_done) {
+        fprintf(stderr, "\r  Precompute: 100.0%% (%d GPUs done)                    \n", shared->num_gpus);
+    } else {
+        fprintf(stderr, "\r  Precompute: %.1f%% (%d GPUs)    ", pct, shared->num_gpus);
+    }
+
+    if (ipct > shared->last_reported_pct || all_done) {
+        shared->last_reported_pct = ipct;
+        char ts[64];
+        json_timestamp(ts, sizeof(ts));
+        jlog("{\"event\":\"precompute_progress\",\"timestamp\":\"%s\","
+             "\"hash_idx\":%d,\"ct_hex\":\"%s\",\"rounds_done\":%lu,"
+             "\"total_rounds\":%lu,\"pct\":%.1f}",
+             ts, shared->hash_idx, shared->ct_hex,
+             (unsigned long)sum_done, (unsigned long)sum_total, pct);
+    }
+
+    pthread_mutex_unlock(&shared->mutex);
+}
 
 static void *precompute_gpu_worker(void *arg) {
     precompute_thread_arg_t *a = (precompute_thread_arg_t *)arg;
     a->result = gpu_precompute_chunked_range(a->gpu, a->ciphertext, a->chain_len,
                                               a->reduction_offset, a->plaintext_space,
-                                              a->output, a->pos_offset, a->count);
+                                              a->output, a->pos_offset, a->count,
+                                              a->cb, a->cb_data);
     return NULL;
 }
 
@@ -1070,8 +1156,18 @@ int main(int argc, char **argv) {
             pthread_t _pthreads[MAX_GPUS]; \
             precompute_thread_arg_t _pargs[MAX_GPUS]; \
             uint32_t _offsets[MAX_GPUS], _counts[MAX_GPUS]; \
+            precompute_multi_progress_t _mprog; \
+            precompute_gpu_cb_ctx_t _gpu_cb_ctx[MAX_GPUS]; \
+            memset(&_mprog, 0, sizeof(_mprog)); \
+            _mprog.hash_idx = (h_idx); \
+            _mprog.ct_hex = hashes[(h_idx)].ct_hex; \
+            _mprog.num_gpus = (gpu_count); \
+            _mprog.last_reported_pct = -1; \
+            pthread_mutex_init(&_mprog.mutex, NULL); \
             compute_balanced_splits(num_indices, (gpu_count), _offsets, _counts); \
             for (int _g = 0; _g < (gpu_count); _g++) { \
+                _gpu_cb_ctx[_g].shared = &_mprog; \
+                _gpu_cb_ctx[_g].gpu_id = _g; \
                 _pargs[_g].gpu = &(gpu_arr)[_g]; \
                 _pargs[_g].ciphertext = hashes[(h_idx)].ciphertext; \
                 _pargs[_g].chain_len = CHAIN_LEN; \
@@ -1081,15 +1177,20 @@ int main(int argc, char **argv) {
                 _pargs[_g].pos_offset = _offsets[_g]; \
                 _pargs[_g].count = _counts[_g]; \
                 _pargs[_g].gpu_id = _g; \
+                _pargs[_g].cb = precompute_progress_multi; \
+                _pargs[_g].cb_data = &_gpu_cb_ctx[_g]; \
                 pthread_create(&_pthreads[_g], NULL, precompute_gpu_worker, &_pargs[_g]); \
             } \
             for (int _g = 0; _g < (gpu_count); _g++) { \
                 pthread_join(_pthreads[_g], NULL); \
                 if (_pargs[_g].result < 0) { fprintf(stderr, "Error: precompute failed\n"); free(end_indices); return 1; } \
             } \
+            pthread_mutex_destroy(&_mprog.mutex); \
         } else { \
+            precompute_progress_ctx_t _sprog = { (h_idx), hashes[(h_idx)].ct_hex, -1 }; \
             if (gpu_precompute_chunked(&(gpu_arr)[0], hashes[(h_idx)].ciphertext, CHAIN_LEN, REDUCTION_OFFSET, \
-                                        plaintext_space, end_indices) < 0) { \
+                                        plaintext_space, end_indices, \
+                                        precompute_progress_single, &_sprog) < 0) { \
                 fprintf(stderr, "Error: precompute failed\n"); free(end_indices); return 1; \
             } \
         } \

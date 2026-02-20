@@ -6,6 +6,8 @@
 #include <stdint.h>
 #include <CL/cl.h>
 
+typedef void (*precompute_progress_fn)(uint32_t rounds_done, uint32_t total_rounds, void *user_data);
+
 typedef struct {
     cl_platform_id platform;
     cl_device_id device;
@@ -36,10 +38,12 @@ int gpu_precompute(gpu_context *ctx, const uint8_t *ciphertext, uint32_t chain_l
                    uint64_t *end_indices);
 int gpu_precompute_chunked(gpu_context *ctx, const uint8_t *ciphertext, uint32_t chain_len,
                            uint32_t reduction_offset, uint64_t plaintext_space_total,
-                           uint64_t *end_indices);
+                           uint64_t *end_indices,
+                           precompute_progress_fn cb, void *cb_data);
 int gpu_precompute_chunked_range(gpu_context *ctx, const uint8_t *ciphertext, uint32_t chain_len,
                                   uint32_t reduction_offset, uint64_t plaintext_space_total,
-                                  uint64_t *end_indices, uint32_t pos_offset, uint32_t count);
+                                  uint64_t *end_indices, uint32_t pos_offset, uint32_t count,
+                                  precompute_progress_fn cb, void *cb_data);
 int gpu_check_false_alarms(gpu_context *ctx, const uint8_t *target_hash,
                            uint64_t *start_indices, uint32_t *positions,
                            uint32_t num_candidates, uint32_t reduction_offset,

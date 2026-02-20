@@ -185,7 +185,8 @@ int gpu_precompute(gpu_context *ctx, const uint8_t *hash,
 int gpu_precompute_chunked(gpu_context *ctx, const uint8_t *hash,
                            uint32_t chain_len, uint32_t reduction_offset,
                            uint64_t plaintext_space_total,
-                           uint64_t *output) {
+                           uint64_t *output,
+                           precompute_progress_fn cb, void *cb_data) {
     cl_int err;
     uint32_t num_indices = chain_len - 1;
     cl_ulong plaintext_space_mask = plaintext_space_total - 1;
@@ -293,14 +294,13 @@ int gpu_precompute_chunked(gpu_context *ctx, const uint8_t *hash,
         /* Flush periodically, finish for progress reporting */
         if ((round_num + 1) % 50 == 0) {
             p_clFinish(ctx->queue);
-            fprintf(stderr, "\r  Progress: %.1f%% (%u/%u rounds, %u active)    ",
-                    100.0 * (round_num + 1) / total_rounds, round_num + 1, total_rounds, active_count);
+            if (cb) cb(round_num + 1, total_rounds, cb_data);
         } else {
             p_clFlush(ctx->queue);
         }
     }
     p_clFinish(ctx->queue);
-    fprintf(stderr, "\r  Progress: 100.0%% (%u rounds completed)                    \n", total_rounds);
+    if (cb) cb(total_rounds, total_rounds, cb_data);
 
     /* Read results */
     err = p_clEnqueueReadBuffer(ctx->queue, indices_buf, CL_TRUE, 0,
@@ -325,7 +325,8 @@ int gpu_precompute_chunked(gpu_context *ctx, const uint8_t *hash,
 int gpu_precompute_chunked_range(gpu_context *ctx, const uint8_t *hash,
                                   uint32_t chain_len, uint32_t reduction_offset,
                                   uint64_t plaintext_space_total,
-                                  uint64_t *output, uint32_t pos_offset, uint32_t count) {
+                                  uint64_t *output, uint32_t pos_offset, uint32_t count,
+                                  precompute_progress_fn cb, void *cb_data) {
     cl_int err;
     cl_ulong plaintext_space_mask = plaintext_space_total - 1;
 
@@ -387,12 +388,15 @@ int gpu_precompute_chunked_range(gpu_context *ctx, const uint8_t *hash,
                                         &global_work_size, &local_work_size, 0, NULL, NULL);
         if (err != CL_SUCCESS) goto cleanup;
 
-        if ((round_num + 1) % 50 == 0)
+        if ((round_num + 1) % 50 == 0) {
             p_clFinish(ctx->queue);
-        else
+            if (cb) cb(round_num + 1, total_rounds, cb_data);
+        } else {
             p_clFlush(ctx->queue);
+        }
     }
     p_clFinish(ctx->queue);
+    if (cb) cb(total_rounds, total_rounds, cb_data);
 
     err = p_clEnqueueReadBuffer(ctx->queue, indices_buf, CL_TRUE, 0,
                                  count * sizeof(cl_ulong), output, 0, NULL, NULL);

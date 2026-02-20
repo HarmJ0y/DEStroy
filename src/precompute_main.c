@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
     printf("STATUS Computing %u endpoints for %s...\n", num_indices, ct_hex);
     
     int result = gpu_precompute_chunked(&gpu, ciphertext, CHAIN_LEN, REDUCTION_OFFSET,
-                                         plaintext_space, end_indices);
+                                         plaintext_space, end_indices, NULL, NULL);
 
     if (result < 0) {
         char msg[256];
